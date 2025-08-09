@@ -74,14 +74,12 @@ socket.on('connect', () => {
     myId = socket.id;
 });
 
-// MODIFICAÇÃO 3: Quando o estado do jogo é atualizado, verifica se o jogador virou zumbi.
 socket.on('gameStateUpdate', (serverState) => {
-    // Verifica se o jogador acabou de ser transformado em zumbi
     if (myId && gameState.players[myId] && serverState.players[myId]) {
         const meBefore = gameState.players[myId];
         const meNow = serverState.players[myId];
         if (meBefore.role !== 'zombie' && meNow.role === 'zombie') {
-            isMenuOpen = false; // Fecha o menu da loja
+            isMenuOpen = false;
         }
     }
     gameState = serverState;
@@ -94,12 +92,10 @@ socket.on('newMessage', (message) => {
     }
 });
 
-// MODIFICAÇÃO 4: A lógica de eventos do teclado foi reestruturada.
 window.addEventListener('keydown', function (event) {
     const key = event.key.toLowerCase();
     const me = gameState.players[myId];
 
-    // A lógica de chat é processada primeiro.
     if (key === 'enter') {
         event.preventDefault();
         if (isChatting) {
@@ -119,24 +115,20 @@ window.addEventListener('keydown', function (event) {
         chatInput.blur();
     }
 
-    // Se o jogador estiver digitando no chat, nenhuma outra tecla de jogo deve funcionar.
     if (isChatting) {
         return;
     }
 
-    // Lógica do menu da loja (tecla B).
     if (key === 'b') {
         if (me && me.role !== 'zombie') {
             isMenuOpen = !isMenuOpen;
         }
     }
 
-    // Se o menu estiver aberto, apenas a tecla 'B' (tratada acima) deve funcionar.
     if (isMenuOpen) {
         return;
     }
 
-    // As ações de jogo só são processadas se o chat e o menu estiverem fechados.
     switch (key) {
         case 'w': case 'arrowup': movement.up = true; break;
         case 's': case 'arrowdown': movement.down = true; break;
@@ -153,11 +145,7 @@ window.addEventListener('keydown', function (event) {
             }
             break;
         case 'g': socket.emit('playerAction', { type: 'drop_items' }); break;
-        case 'r':
-            if (me && me.hasDrone) {
-                socket.emit('playerAction', { type: 'drop_grenade' });
-            }
-            break;
+        // MODIFICAÇÃO 1: Removida a tecla 'R' para soltar a granada.
     }
 });
 
@@ -218,7 +206,6 @@ canvas.addEventListener('mousedown', function (event) {
                 let isAvailable = true;
                 let alreadyOwned = false;
 
-                // MODIFICAÇÃO 1: O skate só pode ser comprado se não estiver no mapa e ninguém o possuir.
                 if (btn.id === 'skateboard') {
                     isAvailable = gameState.skateboard && !gameState.skateboard.spawned && !gameState.skateboard.ownerId;
                     alreadyOwned = me.hasSkateboard;
@@ -237,7 +224,13 @@ canvas.addEventListener('mousedown', function (event) {
         }
 
     } else {
-        socket.emit('playerAction', { type: 'primary_action' });
+        // MODIFICAÇÃO 1: Permite soltar bombas com o clique esquerdo do mouse se o jogador tiver um drone.
+        const me = gameState.players[myId];
+        if (me && me.hasDrone) {
+            socket.emit('playerAction', { type: 'drop_grenade' });
+        } else {
+            socket.emit('playerAction', { type: 'primary_action' });
+        }
     }
 });
 
@@ -647,7 +640,6 @@ function drawMenu() {
             let isAvailable = true;
             let alreadyOwned = false;
             
-            // MODIFICAÇÃO 1: A verificação de disponibilidade do skate é atualizada.
             if (btn.id === 'skateboard') {
                 isAvailable = gameState.skateboard && !gameState.skateboard.spawned && !gameState.skateboard.ownerId;
                 alreadyOwned = me.hasSkateboard;

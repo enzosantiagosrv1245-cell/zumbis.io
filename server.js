@@ -13,7 +13,7 @@ const WORLD_HEIGHT = 2000;
 const INITIAL_PLAYER_SIZE = 40;
 const INITIAL_PLAYER_SPEED = 2;
 const MAX_PLAYER_SPEED = 5;
-const SPEED_PER_PIXEL_OF_GROWTH = 0.09;
+const SPEED_PER_PIXEL_OF_GROWTH = 0.08;
 const GROWTH_AMOUNT = 0.3;
 const ZOMBIE_DECAY_AMOUNT = 0.25;
 const DUCT_TRAVEL_TIME = 1000 / 20;
@@ -90,7 +90,6 @@ function initializeGame() {
             y: 0,
             width: SKATEBOARD_WIDTH,
             height: SKATEBOARD_HEIGHT,
-            // MODIFICAÇÃO 1: O skate não começa mais "spawnado" no mapa.
             spawned: false,
             ownerId: null
         },
@@ -161,9 +160,12 @@ function dropAllItems(player) {
     }
     if (player.hasDrone) {
         player.hasDrone = false;
+        const droneData = gameState.drones[player.id];
         delete gameState.drones[player.id];
         gameState.groundItems.push({
             id: 'drone',
+            // MODIFICAÇÃO 2: Salva a munição atual do drone ao ser dropado.
+            ammo: droneData ? droneData.ammo : DRONE_MAX_AMMO,
             x: player.x,
             y: player.y,
             width: DROPPED_ITEM_SIZE,
@@ -435,22 +437,18 @@ function updateGameState() {
     for (const id in gameState.players) {
         const player = gameState.players[id];
         
-        // Hitbox de colisão física
         player.hitbox = {
             cx: player.x + player.width / 2,
             cy: player.y + player.height / 2,
             radius: player.width / 2,
         };
 
-        // MODIFICAÇÃO 2: Adiciona uma hitbox menor, específica para infecção.
         player.infectionHitbox = {
             cx: player.x + player.width / 2,
             cy: player.y + player.height / 2,
-            radius: player.width * 0.2, // Raio é 20% do tamanho do jogador (40% do raio original)
+            radius: player.width * 0.2,
         };
 
-        // MODIFICAÇÃO 1: Adiciona uma hitbox específica para colisão com objetos e cenário.
-        // O tamanho é 2/4 (metade) do tamanho do jogador, significando que o raio é metade do raio original.
         player.physicalHitbox = {
             cx: player.x + player.width / 2,
             cy: player.y + player.height / 2,
@@ -467,9 +465,8 @@ function updateGameState() {
             const angle = player.rotation;
             
             player.x += Math.cos(angle) * skateSpeed;
-            player.physicalHitbox.cx = player.x + (player.width / 2); // MODIFICAÇÃO 1: Atualiza a hitbox física
+            player.physicalHitbox.cx = player.x + (player.width / 2);
             let collidedX = false;
-            // MODIFICAÇÃO 1: Usa a hitbox física para colisão com cenário
             for (const wall of [...gameState.house.walls, ...gameState.garage.walls]) { if (isCollidingCircleRect(player.physicalHitbox, wall)) { collidedX = true; } }
             if (isCollidingCircleRect(player.physicalHitbox, gameState.chest)) { collidedX = true; }
             if (player.x < 0 || player.x + player.width > WORLD_WIDTH) { collidedX = true; }
@@ -479,9 +476,8 @@ function updateGameState() {
             }
 
             player.y += Math.sin(angle) * skateSpeed;
-            player.physicalHitbox.cy = player.y + (player.height / 2); // MODIFICAÇÃO 1: Atualiza a hitbox física
+            player.physicalHitbox.cy = player.y + (player.height / 2);
             let collidedY = false;
-            // MODIFICAÇÃO 1: Usa a hitbox física para colisão com cenário
             for (const wall of [...gameState.house.walls, ...gameState.garage.walls]) { if (isCollidingCircleRect(player.physicalHitbox, wall)) { collidedY = true; } }
             if (isCollidingCircleRect(player.physicalHitbox, gameState.chest)) { collidedY = true; }
             if (player.y < 0 || player.y + player.height > WORLD_HEIGHT) { collidedY = true; }
@@ -497,9 +493,8 @@ function updateGameState() {
             const originalY = player.y;
             if (player.input.movement.left) { player.x -= player.speed; }
             if (player.input.movement.right) { player.x += player.speed; }
-            player.physicalHitbox.cx = player.x + (player.width / 2); // MODIFICAÇÃO 1: Atualiza a hitbox física
+            player.physicalHitbox.cx = player.x + (player.width / 2);
             let collidedX = false;
-            // MODIFICAÇÃO 1: Usa a hitbox física para colisão com cenário
             for (const wall of [...gameState.house.walls, ...gameState.garage.walls]) {
                 if (isCollidingCircleRect(player.physicalHitbox, wall)) { collidedX = true; }
             }
@@ -511,9 +506,8 @@ function updateGameState() {
             }
             if (player.input.movement.up) { player.y -= player.speed; }
             if (player.input.movement.down) { player.y += player.speed; }
-            player.physicalHitbox.cy = player.y + (player.height / 2); // MODIFICAÇÃO 1: Atualiza a hitbox física
+            player.physicalHitbox.cy = player.y + (player.height / 2);
             let collidedY = false;
-            // MODIFICAÇÃO 1: Usa a hitbox física para colisão com cenário
             for (const wall of [...gameState.house.walls, ...gameState.garage.walls]) {
                 if (isCollidingCircleRect(player.physicalHitbox, wall)) { collidedY = true; }
             }
@@ -531,7 +525,6 @@ function updateGameState() {
                 break;
             }
         }
-        // MODIFICAÇÃO 1: Usa a hitbox física para colisão com objetos móveis
         const playerCircle = player.physicalHitbox;
         const playerPoly = {
             x: playerCircle.cx - playerCircle.radius,
@@ -599,7 +592,6 @@ function updateGameState() {
        }
         const allWalls = [...gameState.house.walls, ...gameState.garage.walls];
         for (const wall of allWalls) {
-            // MODIFICAÇÃO 1: Usa a hitbox física para a checagem final de colisão com paredes
             const finalPlayerPoly = {
                 x: player.physicalHitbox.cx - player.physicalHitbox.radius,
                 y: player.physicalHitbox.cy - player.physicalHitbox.radius,
@@ -658,8 +650,8 @@ function updateGameState() {
                     if (id1 === id2) continue;
                     const player2 = players[id2];
                         
-                        // MODIFICAÇÃO 2: A checagem de colisão agora usa a hitbox de infecção do humano.
-                    if ((player2.role === 'human' || player2.isSpying) && isCollidingCircleCircle(player1.hitbox, player2.infectionHitbox)) {
+                        // MODIFICAÇÃO 3: Corrige a lógica de infecção usando a hitbox principal de ambos os jogadores.
+                    if ((player2.role === 'human' || player2.isSpying) && isCollidingCircleCircle(player1.hitbox, player2.hitbox)) {
                         
                         dropAllItems(player2);
 
@@ -668,6 +660,10 @@ function updateGameState() {
                         }
                         player2.role = 'zombie';
                         player2.speed = Math.min(MAX_PLAYER_SPEED, player2.speed * ZOMBIE_SPEED_BOOST);
+                            // MODIFICAÇÃO 4: Garante que a velocidade do novo zumbi seja no mínimo 2.30 se estiver no intervalo especificado.
+                            if (player2.speed >= 1.8 && player2.speed <= 2.29) {
+                                player2.speed = 2.30;
+                            }
                         
                         const coinReward = Math.floor(Math.random() * 51) + 50; 
                         player1.coins += coinReward;
@@ -817,7 +813,6 @@ io.on('connection', (socket) => {
 
         if (itemId === 'skateboard') {
             const cost = 100;
-            // MODIFICAÇÃO 1: A condição para comprar o skate foi atualizada.
             const skateboardIsAvailable = !gameState.skateboard.ownerId && !gameState.skateboard.spawned;
             if (player.coins >= cost && !player.hasSkateboard && skateboardIsAvailable) {
                 player.coins -= cost;
@@ -975,7 +970,9 @@ io.on('connection', (socket) => {
                     }
                     if (item.id === 'drone' && !player.hasDrone) {
                         player.hasDrone = true;
-                        gameState.drones[player.id] = { ownerId: player.id, x: player.x, y: player.y, ammo: DRONE_MAX_AMMO };
+                            // MODIFICAÇÃO 2: Restaura a munição do drone ao ser pego.
+                            const ammoCount = item.ammo !== undefined ? item.ammo : DRONE_MAX_AMMO;
+                        gameState.drones[player.id] = { ownerId: player.id, x: player.x, y: player.y, ammo: ammoCount };
                         gameState.groundItems.splice(i, 1);
                         return;
                     }
@@ -992,7 +989,7 @@ io.on('connection', (socket) => {
                             if (gameState.players[socket.id]) {
                                 player.x = exitDuct.x + exitDuct.width / 2 - player.width / 2;
                                 player.y = exitDuct.y + exitDuct.height / 2 - player.height / 2;
-                                player.isInDuct = false;
+                                player.isInDuct = false;
                             }
                         }, DUCT_TRAVEL_TIME);
                         break;
@@ -1055,8 +1052,10 @@ setInterval(() => {
                     zombiePlayer.role = 'zombie';
                     zombiePlayer.speed = Math.min(MAX_PLAYER_SPEED, zombiePlayer.speed * ZOMBIE_SPEED_BOOST);
 
-                    // MODIFICAÇÃO 1: Removido o spawn automático do skate ao iniciar a rodada.
-                     // O skate agora só fica disponível na loja.
+                        // MODIFICAÇÃO 4: Garante que a velocidade do zumbi inicial seja no mínimo 2.30 se estiver no intervalo especificado.
+                        if (zombiePlayer.speed >= 1.8 && zombiePlayer.speed <= 2.29) {
+                            zombiePlayer.speed = 2.30;
+                        }
 
                     console.log(`The round has started! ${zombiePlayer.name} is the initial Zombie!`);
                     io.emit('newMessage', { name: 'Server', text: `The infection has begun! ${zombiePlayer.name} is the zombie!` });
