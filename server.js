@@ -30,9 +30,6 @@ const ARROW_LIFESPAN_AFTER_HIT = 1000;
 const BOX_FRICTION = 0.94;
 const BOX_PUSH_FORCE = 0.5;
 const GLOVES_PUSH_MULTIPLIER = 2.5;
-// MODIFICAÇÃO INICIADA: Removido multiplicador de força de faseamento
-// const GLOVES_PHASING_FORCE_MULTIPLIER = 80;
-// MODIFICAÇÃO FINALIZADA
 const BOX_COLLISION_DAMPING = 0.80;
 const ANGULAR_FRICTION = 0.50;
 const TORQUE_FACTOR = 0.00009;
@@ -60,17 +57,14 @@ const SOCCER_BALL_KICK_FORCE = 30;
 const SOCCER_BALL_KNOCKBACK = 400;
 const SOCCER_BALL_FRICTION = 0.98;
 
-// MODIFICAÇÃO INICIADA: Constantes para as novas habilidades
 const ILLUSIONIST_COOLDOWN = 40000;
-// PONTO 2: Duração da ilusão aumentada para 10 segundos
 const ILLUSION_LIFESPAN = 10000;
-// PONTO 2: Velocidade da ilusão reduzida
 const ILLUSION_SPEED = 1.5;
-const BUTTERFLY_DURATION = 10000; // 10 segundos
+const BUTTERFLY_DURATION = 10000;
 const BUTTERFLY_SPEED_MULTIPLIER = 2.5;
-// MODIFICAÇÃO FINALIZADA
 
-// MODIFICAÇÃO INICIADA: Adicionados e traduzidos custos para as novas habilidades (PONTO 2)
+const INVISIBILITY_CLOAK_BREAK_DISTANCE = 400;
+
 const ABILITY_COSTS = {
     chameleon: 20,
     athlete: 10,
@@ -82,14 +76,11 @@ const ABILITY_COSTS = {
     illusionist: 30,
     butterfly: 25,
 };
-// MODIFICAÇÃO FINALIZADA
 
 let gameState = {};
 let nextArrowId = 0;
 let nextGrenadeId = 0;
-// MODIFICAÇÃO INICIADA: ID para ilusões
 let nextIllusionId = 0;
-// MODIFICAÇÃO FINALIZADA
 
 function spawnSkateboard() {
     if (!gameState.skateboard) return;
@@ -109,9 +100,7 @@ function initializeGame() {
         grenades: [],
         smokeClouds: [],
         groundItems: [],
-        // MODIFICAÇÃO INICIADA: Adicionado array de ilusões
         illusions: [],
-        // MODIFICAÇÃO FINALIZADA
         takenAbilities: [],
         abilityCosts: ABILITY_COSTS,
         gamePhase: 'waiting',
@@ -121,11 +110,10 @@ function initializeGame() {
             x: 2500, y: 1500,
             width: SOCCER_BALL_SIZE, height: SOCCER_BALL_SIZE,
             vx: 0, vy: 0,
-            // PONTO 1: Adicionado para controle do chute
             lastKickedTime: 0 
         },
         skateboard: {
-            id: 'skateboard', // Adicionado para consistência com o inventário
+            id: 'skateboard',
             x: 0, y: 0,
             width: SKATEBOARD_WIDTH, height: SKATEBOARD_HEIGHT,
             spawned: false, ownerId: null
@@ -163,7 +151,6 @@ function initializeGame() {
     buildWalls(gameState.garage);
 }
 
-// MODIFICAÇÃO INICIADA: Função de drop agora usa o sistema de inventário
 function dropHeldItem(player) {
     if (!player || !player.inventory) return;
 
@@ -187,8 +174,16 @@ function dropHeldItem(player) {
             width: DROPPED_ITEM_SIZE,
             height: DROPPED_ITEM_SIZE
         });
+    } else if (itemToDrop.id === 'invisibilityCloak') {
+        gameState.groundItems.push({
+            id: 'invisibilityCloak',
+            active: false,
+            x: player.x,
+            y: player.y,
+            width: DROPPED_ITEM_SIZE,
+            height: DROPPED_ITEM_SIZE
+        });
     } else {
-        // Para outros itens como Light Gloves
         gameState.groundItems.push({
             id: itemToDrop.id,
             x: player.x,
@@ -198,7 +193,6 @@ function dropHeldItem(player) {
         });
     }
 }
-// MODIFICAÇÃO FINALIZADA
 
 function buildWalls(structure) {
     const s = structure;
@@ -264,7 +258,7 @@ function createNewPlayer(socket) {
         width: INITIAL_PLAYER_SIZE,
         height: INITIAL_PLAYER_SIZE * 1.5,
         speed: INITIAL_PLAYER_SPEED,
-        originalSpeed: INITIAL_PLAYER_SPEED, // Para restaurar após buffs
+        originalSpeed: INITIAL_PLAYER_SPEED,
         rotation: 0,
         role: 'human',
         activeAbility: ' ',
@@ -287,14 +281,13 @@ function createNewPlayer(socket) {
         zombieSpeed: null,
         zombieWidth: null,
         zombieHeight: null,
-        // MODIFICAÇÃO INICIADA: Atributos para novas habilidades e inventário
         inventory: null,
         illusionistAvailable: true,
-        // PONTO 3: Adicionado estado para a "segunda chance" do ilusionista
         illusionistPassiveAvailable: true,
         butterflyUsed: false,
         isFlying: false,
-        // MODIFICAÇÃO FINALIZADA
+        teleportCooldownUntil: 0,
+        isInvisible: false,
         input: {
             movement: { up: false, down: false, left: false, right: false },
             mouse: { x: 0, y: 0 },
@@ -387,7 +380,6 @@ function updateGameState() {
     const now = Date.now();
     gameState.smokeClouds = gameState.smokeClouds.filter(cloud => cloud.expirationTime > now);
 
-    // MODIFICAÇÃO INICIADA: Atualizar e remover ilusões
     gameState.illusions = gameState.illusions.filter(illusion => {
         if (now - illusion.creationTime > ILLUSION_LIFESPAN) {
             return false;
@@ -399,7 +391,6 @@ function updateGameState() {
         illusion.x += illusion.vx;
         illusion.y += illusion.vy;
 
-        // Colisão simples da ilusão com paredes
         const illusionRect = { ...illusion };
         const obstacles = [...gameState.house.walls, ...gameState.garage.walls, gameState.chest];
         for(const wall of obstacles) {
@@ -413,7 +404,6 @@ function updateGameState() {
         }
         return true;
     });
-    // MODIFICAÇÃO FINALIZADA
 
     for (const ownerId in gameState.drones) {
         const drone = gameState.drones[ownerId];
@@ -447,12 +437,6 @@ function updateGameState() {
 
     const allCollidables = [...gameState.box, ...gameState.furniture];
     
-    // MODIFICAÇÃO INICIADA: `isPhasing` removido da lógica
-    // for (const item of allCollidables) {
-    //     item.isPhasing = false;
-    // }
-    // MODIFICAÇÃO FINALIZADA
-
     for (let i = 0; i < allCollidables.length; i++) {
         const item1 = allCollidables[i];
         for (let j = i + 1; j < allCollidables.length; j++) {
@@ -484,25 +468,26 @@ function updateGameState() {
         item1.angularVelocity *= ANGULAR_FRICTION;
         const obstacles = [...gameState.house.walls, ...gameState.garage.walls, gameState.chest];
         
-        // MODIFICAÇÃO INICIADA: Colisão com paredes agora é incondicional
-        for (const obstacle of obstacles) {
-            const mtv = checkCollisionSAT(item1, obstacle);
-            if (mtv) {
-                item1.x -= mtv.x;
-                item1.y -= mtv.y;
-                const dot = item1.vx * mtv.x + item1.vy * mtv.y;
-                const lenSq = mtv.x * mtv.x + mtv.y * mtv.y;
-                if (lenSq > 0) {
-                    const reflectionX = item1.vx - 2 * dot * mtv.x / lenSq;
-                    const reflectionY = item1.vy - 2 * dot * mtv.y / lenSq;
-                    item1.vx = reflectionX * BOX_COLLISION_DAMPING * 0.5;
-                    item1.vy = reflectionY * BOX_COLLISION_DAMPING * 0.5;
-                }
-                item1.angularVelocity *= -0.5;
-            }
-        }
-        // MODIFICAÇÃO FINALIZADA
-        
+        if (!item1.ignoreWallCollision) {
+            for (const obstacle of obstacles) {
+                const mtv = checkCollisionSAT(item1, obstacle);
+                if (mtv) {
+                    item1.x -= mtv.x;
+                    item1.y -= mtv.y;
+                    const dot = item1.vx * mtv.x + item1.vy * mtv.y;
+                    const lenSq = mtv.x * mtv.x + mtv.y * mtv.y;
+                    if (lenSq > 0) {
+                        const reflectionX = item1.vx - 2 * dot * mtv.x / lenSq;
+                        const reflectionY = item1.vy - 2 * dot * mtv.y / lenSq;
+                        item1.vx = reflectionX * BOX_COLLISION_DAMPING * 0.5;
+                        item1.vy = reflectionY * BOX_COLLISION_DAMPING * 0.5;
+                    }
+                    item1.angularVelocity *= -0.5;
+                }
+            }
+        }
+        item1.ignoreWallCollision = false;
+
         item1.x = Math.max(0, Math.min(item1.x, WORLD_WIDTH - item1.width));
         item1.y = Math.max(0, Math.min(item1.y, WORLD_HEIGHT - item1.height));
     }
@@ -549,7 +534,28 @@ function updateGameState() {
     for (const id in gameState.players) {
         const player = gameState.players[id];
         
-        // MODIFICAÇÃO INICIADA: Ignorar lógica de movimento/colisão se estiver voando
+        if (player.isInvisible) {
+            let cloakBroken = false;
+            for (const otherId in gameState.players) {
+                if (id === otherId) continue;
+                const otherPlayer = gameState.players[otherId];
+                if (otherPlayer.role === 'zombie') {
+                    const dx = player.x - otherPlayer.x;
+                    const dy = player.y - otherPlayer.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+
+                    if (distance < INVISIBILITY_CLOAK_BREAK_DISTANCE) {
+                        player.isInvisible = false;
+                        player.inventory = null;
+                        io.emit('newMessage', { name: 'Server', text: `${player.name}'s cloak was broken!` });
+                        cloakBroken = true;
+                        break; 
+                    }
+                }
+            }
+            if (cloakBroken) continue;
+        }
+        
         if (player.isFlying) {
             if (player.input.movement.up) { player.y -= player.speed; }
             if (player.input.movement.down) { player.y += player.speed; }
@@ -558,9 +564,8 @@ function updateGameState() {
             
             player.x = Math.max(0, Math.min(player.x, WORLD_WIDTH - player.width));
             player.y = Math.max(0, Math.min(player.y, WORLD_HEIGHT - player.height));
-            continue; // Pula o resto da lógica de física para este jogador
+            continue;
         }
-        // MODIFICAÇÃO FINALIZADA
         
         player.hitbox = {
             cx: player.x + player.width / 2, cy: player.y + player.height / 2, radius: player.width / 2,
@@ -572,9 +577,7 @@ function updateGameState() {
             cx: player.x + player.width / 2, cy: player.y + player.height / 2, radius: player.width / 4,
         };
 
-        // MODIFICAÇÃO INICIADA: Lógica de movimento com skate baseada no inventário
         if (player.inventory && player.inventory.id === 'skateboard') {
-        // MODIFICAÇÃO FINALIZADA
             if (player.activeAbility === 'chameleon' && player.isCamouflaged) {
                 player.isCamouflaged = false;
             }
@@ -644,7 +647,6 @@ function updateGameState() {
             }
         }
 
-        // PONTO 1: Adicionada lógica de chute por toque
         if (!player.isInDuct && !player.isFlying) {
             const ball = gameState.soccerBall;
             if (ball && isColliding(player, ball) && (now - ball.lastKickedTime > 500)) {
@@ -683,6 +685,16 @@ function updateGameState() {
 
                     let pushMultiplier = (player.inventory && player.inventory.id === 'lightGloves') ? GLOVES_PUSH_MULTIPLIER : 1;
                     
+                        if (player.inventory && player.inventory.id === 'heavyGloves') {
+                            const staticObstacles = [...gameState.house.walls, ...gameState.garage.walls, gameState.chest];
+                            for (const obstacle of staticObstacles) {
+                                if (checkCollisionSAT(item, obstacle)) {
+                                    item.ignoreWallCollision = true;
+                                    break;
+                                }
+                            }
+                        }
+
                     let wallMtv = null;
                     const staticObstacles = [...gameState.house.walls, ...gameState.garage.walls, gameState.chest];
                     for (const obstacle of staticObstacles) {
@@ -693,12 +705,14 @@ function updateGameState() {
                         }
                     }
                     
-                    let pushForceX = pushDirectionX * BOX_PUSH_FORCE * pushMultiplier;
-                    let pushForceY = pushDirectionY * BOX_PUSH_FORCE * pushMultiplier;
+                        let mass = 1;
+                        if (item.id === 'car') {
+                            mass = 5;
+                        }
+                        let pushForceX = pushDirectionX * BOX_PUSH_FORCE * pushMultiplier / mass;
+                        let pushForceY = pushDirectionY * BOX_PUSH_FORCE * pushMultiplier / mass;
 
-                    // MODIFICAÇÃO INICIADA: Removida a lógica de `canPhaseThroughWall`
                     if (wallMtv) {
-                        // Lógica de deslizar
                         const pushVector = { x: pushForceX, y: pushForceY };
                         const len = Math.sqrt(wallMtv.x * wallMtv.x + wallMtv.y * wallMtv.y);
                         let normal = { x: wallMtv.x / len, y: wallMtv.y / len };
@@ -709,7 +723,6 @@ function updateGameState() {
                         pushForceX = slideForce.x;
                         pushForceY = slideForce.y;
                     }
-                    // MODIFICAÇÃO FINALIZADA
                     
                     item.vx += pushForceX;
                     item.vy += pushForceY;
@@ -785,18 +798,13 @@ function updateGameState() {
                 for (const id2 of playerIds) {
                     if (id1 === id2) continue;
                     const player2 = players[id2];
-                    if ((player2.role === 'human' || player2.isSpying) && isCollidingCircleCircle(player1.hitbox, player2.hitbox)) {
-                        // MODIFICAÇÃO INICIADA: Lógica da habilidade Ilusionista (PONTO 3)
+                    if ((player2.role === 'human' || player2.isSpying) && isCollidingCircleCircle(player1.hitbox, player2.hitbox) && !player2.isFlying) {
                         if (player2.activeAbility === 'illusionist' && player2.illusionistPassiveAvailable) {
-                            // O jogador usa sua vida extra para evitar a infecção desta vez.
                             player2.illusionistPassiveAvailable = false; 
-                            // Notifica os jogadores sobre o uso da habilidade passiva.
                             io.emit('newMessage', { name: 'Server', text: `${player2.name} used their extra life and was not infected!` });
-                            // Pula o resto da lógica de infecção para este jogador.
                             continue;
                         }
 
-                        // Lógica da habilidade Borboleta (PONTO 2)
                         if (player2.activeAbility === 'butterfly' && !player2.butterflyUsed) {
                             player2.butterflyUsed = true;
                             player2.isFlying = true;
@@ -811,17 +819,30 @@ function updateGameState() {
                                 }
                             }, BUTTERFLY_DURATION);
                             io.emit('newMessage', { name: 'Server', text: `${player2.name} used the Butterfly to escape!` });
-                            continue; // Pula a infecção
+                            continue;
                         }
-                        // MODIFICAÇÃO FINALIZADA
+                        
+                                if (player2.inventory && player2.inventory.id === 'invisibilityCloak') {
+                                    player2.inventory = null;
+                                    if (player2.isInvisible) {
+                                        player2.isInvisible = false;
+                                    }
+                                } else {
+                                    dropHeldItem(player2);
+                                }
 
-                        dropHeldItem(player2);
+                        const humanSpeed = player2.speed;
+                        const humanWidth = player2.width;
+                        const humanHeight = player2.height;
+
                         if (player2.isSpying) {
                             player2.isSpying = false;
                         }
                         player2.role = 'zombie';
-                        player2.width = INITIAL_PLAYER_SIZE;
-                        player2.height = INITIAL_PLAYER_SIZE * 1.5;
+                        player2.speed = humanSpeed;
+                        player2.width = humanWidth;
+                        player2.height = humanHeight;
+
                         const coinReward = Math.floor(Math.random() * 31) + 20;
                         const speedBonus = coinReward * 0.015;
                         player1.coins += coinReward;
@@ -950,20 +971,26 @@ io.on('connection', (socket) => {
 
     socket.on('buyItem', (itemId) => {
         const player = gameState.players[socket.id];
-        if (!player || player.inventory) return; // Não pode comprar se o inventário estiver cheio
+        if (!player || player.inventory) return;
 
         let cost;
         let itemData;
 
         if (itemId === 'skateboard') {
-            cost = 100;
+            cost = 400;
             itemData = { ...gameState.skateboard };
         } else if (itemId === 'lightGloves') {
             cost = 50;
             itemData = { id: 'lightGloves' };
+        } else if (itemId === 'heavyGloves') {
+            cost = 100;
+            itemData = { id: 'heavyGloves' };
         } else if (itemId === 'drone') {
-            cost = 50;
+            cost = 300;
             itemData = { id: 'drone', ammo: DRONE_MAX_AMMO };
+        } else if (itemId === 'invisibilityCloak') {
+            cost = 500;
+            itemData = { id: 'invisibilityCloak', active: false };
         }
 
         if (cost && player.coins >= cost) {
@@ -978,7 +1005,7 @@ io.on('connection', (socket) => {
                     ownerId: player.id, x: player.x, y: player.y, ammo: DRONE_MAX_AMMO,
                 };
             }
-            io.emit('newMessage', { name: 'Server', text: `${player.name} bought a ${itemId}!` });
+            io.emit('newMessage', { name: 'Server', text: `${player.name} bought ${itemId}!` });
         }
     });
 
@@ -986,13 +1013,19 @@ io.on('connection', (socket) => {
         const player = gameState.players[socket.id];
         if (!player) return;
 
+        if (actionData.type === 'zombie_teleport') {
+            if (player.role === 'zombie' && Date.now() > (player.teleportCooldownUntil || 0)) {
+                player.x = WORLD_WIDTH / 2 + 500;
+                player.y = WORLD_HEIGHT / 2;
+                player.teleportCooldownUntil = Date.now() + 60000;
+            }
+        }
+
         if (actionData.type === 'drop_grenade') {
-            // MODIFICAÇÃO INICIADA: Checagem baseada no inventário
             if (player.inventory && player.inventory.id === 'drone' && gameState.drones[player.id] && gameState.drones[player.id].ammo > 0) {
-            // MODIFICAÇÃO FINALIZADA
                 const drone = gameState.drones[player.id];
                 drone.ammo--;
-                player.inventory.ammo = drone.ammo; // Atualiza a munição no item do inventário
+                player.inventory.ammo = drone.ammo;
                 gameState.grenades.push({
                     id: nextGrenadeId++, x: drone.x, y: drone.y, explodeTime: Date.now() + GRENADE_FUSE_TIME
                 });
@@ -1010,7 +1043,13 @@ io.on('connection', (socket) => {
         }
 
         if (actionData.type === 'ability') {
-             // MODIFICAÇÃO INICIADA: Lógica da habilidade Ilusionista
+            if (player.inventory && player.inventory.id === 'invisibilityCloak' && !player.inventory.active) {
+                player.inventory.active = true;
+                player.isInvisible = true;
+                io.emit('newMessage', { name: 'Server', text: `${player.name} has vanished!` });
+                return; 
+            }
+
             if (player.activeAbility === 'illusionist' && player.illusionistAvailable) {
                 player.illusionistAvailable = false;
                 gameState.illusions.push({
@@ -1027,7 +1066,6 @@ io.on('connection', (socket) => {
                     if (gameState.players[socket.id]) player.illusionistAvailable = true;
                 }, ILLUSIONIST_COOLDOWN);
             }
-            // MODIFICAÇÃO FINALIZADA
             if (player.activeAbility === 'chemist' && player.chemistBombs > 0) {
                 player.chemistBombs--;
                 gameState.smokeClouds.push({
@@ -1081,48 +1119,43 @@ io.on('connection', (socket) => {
             }
         }
         
-        // MODIFICAÇÃO INICIADA: Renomeado de 'drop_items' para 'drop_item' e chama a nova função
         if (actionData.type === 'drop_item') {
+            if (player.inventory && player.inventory.id === 'invisibilityCloak' && player.inventory.active) {
+                return;
+            }
             dropHeldItem(player);
         }
-        // MODIFICAÇÃO FINALIZADA
 
         if (actionData.type === 'interact') {
-            // PONTO 1: Removida a interação com a bola via tecla 'E'
-            
-            // MODIFICAÇÃO INICIADA: Lógica de pegar item com inventário
-            if (player.inventory) return; // Já tem um item, não pode pegar outro
+            if (player.inventory) return;
 
-            // Pegar skate
             if (gameState.skateboard && gameState.skateboard.spawned && !gameState.skateboard.ownerId) {
                 const skate = gameState.skateboard;
                 const dx = (player.x + player.width / 2) - (skate.x + skate.width / 2);
                 const dy = (player.y + player.height / 2) - (skate.y + skate.height / 2);
                 const distance = Math.sqrt(dx * dx + dy * dy);
                 if (distance < PICKUP_DISTANCE) {
-                    player.inventory = { ...skate }; // Pega uma cópia dos dados do skate
+                    player.inventory = { ...skate };
                     skate.ownerId = player.id;
                     skate.spawned = false;
                     return;
                 }
             }
             
-            // Pegar itens do chão
             for (let i = gameState.groundItems.length - 1; i >= 0; i--) {
                 const item = gameState.groundItems[i];
                 const dx = (player.x + player.width / 2) - (item.x + item.width / 2);
                 const dy = (player.y + player.height / 2) - (item.y + item.height / 2);
                 const distance = Math.sqrt(dx * dx + dy * dy);
                 if (distance < PICKUP_DISTANCE) {
-                    player.inventory = item; // Move o item para o inventário
+                    player.inventory = item;
                     if (item.id === 'drone') {
                        gameState.drones[player.id] = { ownerId: player.id, x: player.x, y: player.y, ammo: item.ammo };
                     }
-                    gameState.groundItems.splice(i, 1); // Remove do chão
+                    gameState.groundItems.splice(i, 1);
                     return;
                 }
             }
-            // MODIFICAÇÃO FINALIZADA
 
             if (player.activeAbility === 'engineer' && !player.engineerAbilityUsed && !player.isInDuct) {
                 for (let i = 0; i < gameState.ducts.length; i++) {
@@ -1187,13 +1220,6 @@ setInterval(() => {
                 if (zombiePlayer) {
                     dropHeldItem(zombiePlayer);
                     zombiePlayer.role = 'zombie';
-                    if (zombiePlayer.zombieSpeed) {
-                        zombiePlayer.speed = zombiePlayer.zombieSpeed;
-                        zombiePlayer.width = zombiePlayer.zombieWidth;
-                        zombiePlayer.height = zombiePlayer.zombieHeight;
-                    } else {
-                        zombiePlayer.speed = Math.min(MAX_PLAYER_SPEED, zombiePlayer.speed * ZOMBIE_SPEED_BOOST);
-                    }
                     console.log(`The round has started! ${zombiePlayer.name} is the initial Zombie!`);
                     io.emit('newMessage', { name: 'Server', text: `The infection has begun! ${zombiePlayer.name} is the zombie!` });
                 }
@@ -1209,7 +1235,6 @@ setInterval(() => {
             } else {
                 player.coins += 1;
                 if (!player.isAnt) {
-                    // PONTO 1: Crescimento do jogador agora é proporcional
                     player.width += GROWTH_AMOUNT;
                     player.height = player.width * 1.5;
                 }
@@ -1224,7 +1249,7 @@ setInterval(() => {
                     const sizeDifference = player.width - INITIAL_PLAYER_SIZE;
                     let newSpeed = INITIAL_PLAYER_SPEED + (sizeDifference * SPEED_PER_PIXEL_OF_GROWTH);
                     player.speed = Math.min(MAX_PLAYER_SPEED, newSpeed);
-                    player.originalSpeed = player.speed; // Atualiza a velocidade base para a Borboleta
+                    player.originalSpeed = player.speed;
                 }
             }
         }

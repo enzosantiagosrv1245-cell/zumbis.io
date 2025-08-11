@@ -63,19 +63,19 @@ const lightGlovesSprite = loadImage('Sprites/LightGloves.png');
 const droneSprite = loadImage('Sprites/Drone.png');
 const grenadeSprite = loadImage('Sprites/Grenade.png');
 const soccerBallSprite = loadImage('Sprites/SoccerBall.png');
+const invisibilityCloakSprite = loadImage('Sprites/InvisibilityCloak.png');
+const heavyGlovesSprite = loadImage('Sprites/HeavyGloves.png');
 
-// MODIFICAÇÃO INICIADA: Mapeamento de sprites para o inventário
 const itemSprites = {
     skateboard: skateboardSprite,
     lightGloves: lightGlovesSprite,
     drone: droneSprite,
+    invisibilityCloak: invisibilityCloakSprite,
+    heavyGloves: heavyGlovesSprite,
 };
-// MODIFICAÇÃO FINALIZADA
 
 let myId = null;
-// MODIFICAÇÃO INICIADA: Adicionado `illusions` ao estado do jogo
 let gameState = { players: {}, arrows: [], timeLeft: 120, startTime: 60, gamePhase: 'waiting', abilityCosts: {}, drones: {}, grenades: [], groundItems: [], smokeClouds: [], soccerBall: null, illusions: [] };
-// MODIFICAÇÃO FINALIZADA
 const movement = { up: false, down: false, left: false, right: false };
 let mouse = { x: 0, y: 0 };
 let isMenuOpen = false;
@@ -93,7 +93,7 @@ socket.on('gameStateUpdate', (serverState) => {
     if (myId && gameState.players[myId] && serverState.players[myId]) {
         const meBefore = gameState.players[myId];
         const meNow = serverState.players[myId];
-        if (meBefore.role !== 'zombie' && meNow.role === 'zombie' && !meNow.butterflyUsed) { // Não fechar o menu se a borboleta for ativada
+        if (meBefore.role !== 'zombie' && meNow.role === 'zombie' && !meNow.butterflyUsed) {
             isMenuOpen = false;
         }
     }
@@ -157,11 +157,14 @@ window.addEventListener('keydown', function (event) {
                 socket.emit('playerAction', { type: 'ability' });
             }
             break;
-        // MODIFICAÇÃO INICIADA: Tecla 'G' para soltar o item do inventário
         case 'g':
             socket.emit('playerAction', { type: 'drop_item' });
             break;
-        // MODIFICAÇÃO FINALIZADA
+        case 'z':
+            if (me && me.role === 'zombie') {
+                socket.emit('playerAction', { type: 'zombie_teleport' });
+            }
+            break;
     }
 });
 
@@ -221,7 +224,6 @@ canvas.addEventListener('mousedown', function (event) {
             const { buttons } = getItemsLayout();
             for (const btn of buttons) {
                 const canAfford = me.coins >= btn.price;
-                // MODIFICAÇÃO INICIADA: Lógica de compra baseada no inventário
                 let alreadyOwned = me.inventory && me.inventory.id === btn.id;
                 let inventoryFull = me.inventory !== null;
 
@@ -230,18 +232,15 @@ canvas.addEventListener('mousedown', function (event) {
                     isMenuOpen = false;
                     return;
                 }
-                // MODIFICAÇÃO FINALIZADA
             }
         }
     } else {
         const me = gameState.players[myId];
-        // MODIFICAÇÃO INICIADA: Checagem de item no inventário para ação primária
         if (me && me.inventory && me.inventory.id === 'drone') {
             socket.emit('playerAction', { type: 'drop_grenade' });
         } else {
             socket.emit('playerAction', { type: 'primary_action' });
         }
-        // MODIFICAÇÃO FINALIZADA
     }
 });
 
@@ -346,34 +345,31 @@ function draw() {
         ctx.strokeRect(wall.x, wall.y, wall.width, wall.height);
     }
 
-    // MODIFICAÇÃO INICIADA: Desenhar ilusões
     if (gameState.illusions) {
         for (const illusion of gameState.illusions) {
             ctx.save();
             ctx.translate(illusion.x + illusion.width / 2, illusion.y + illusion.height / 2);
             const angle = Math.atan2(illusion.vy, illusion.vx);
             ctx.rotate(angle);
-            // PONTO 2: Ilusão agora é 100% opaca
-            // ctx.globalAlpha = 0.6; 
             ctx.drawImage(human, -illusion.width / 2, -illusion.height / 2, illusion.width, illusion.height);
             ctx.restore();
         }
     }
-    // MODIFICAÇÃO FINALIZADA
 
     for (const playerId in gameState.players) {
         const player = gameState.players[playerId];
         if (player.isInDuct) continue;
-        if (player.isHidden && playerId !== myId) continue;
+        
+        if ((player.isHidden || (player.isInvisible && me.role === 'zombie')) && playerId !== myId) {
+            continue;
+        }
         
         ctx.save();
 
-        // MODIFICAÇÃO INICIADA: Efeito visual para a habilidade Borboleta
         if (player.isFlying) {
             ctx.shadowColor = 'rgba(255, 255, 255, 0.8)';
             ctx.shadowBlur = 30;
         }
-        // MODIFICAÇÃO FINALIZADA
 
         ctx.translate(player.x + player.width / 2, player.y + player.height / 2);
         if (playerId === myId) {
@@ -382,12 +378,10 @@ function draw() {
             ctx.rotate(player.rotation);
         }
 
-        // MODIFICAÇÃO INICIADA: Desenha skate se estiver no inventário
         if (player.inventory && player.inventory.id === 'skateboard') {
             const skate = gameState.skateboard;
             ctx.drawImage(skateboardSprite, -skate.width / 2, -skate.height / 2, skate.width, skate.height);
         }
-        // MODIFICAÇÃO FINALIZADA
 
         if (player.role === 'zombie' || player.isSpying) {
             ctx.drawImage(zombie, -player.width / 2, -player.height / 2, player.width, player.height);
@@ -400,7 +394,7 @@ function draw() {
         }
         ctx.restore();
         
-        if (!player.isAnt && !player.isCamouflaged && !player.isHidden) {
+        if (!player.isAnt && !player.isCamouflaged && !player.isHidden && !player.isInvisible) {
             ctx.fillStyle = (player.role === 'zombie' || player.isSpying) ? '#2ecc71' : 'white';
             ctx.strokeStyle = 'black';
             ctx.lineWidth = 5;
@@ -482,13 +476,11 @@ function draw() {
     if (me.activeAbility === 'archer') {
         ctx.fillText(`AMMO: ${me.arrowAmmo}`, 10, canvas.height - 50);
     }
-    // MODIFICAÇÃO INICIADA: Checagem de item no inventário
     if (me.inventory && me.inventory.id === 'drone' && gameState.drones[me.id]) {
         ctx.font = '24px Arial';
         ctx.fillStyle = 'white';
         ctx.fillText(`GRENADES: ${gameState.drones[me.id].ammo}`, 10, canvas.height - 50);
     }
-    // MODIFICAÇÃO FINALIZADA
     if (me.activeAbility === 'engineer') {
         ctx.font = '24px Arial';
         const statusText = me.engineerAbilityUsed ? 'USED' : 'AVAILABLE';
@@ -505,13 +497,11 @@ function draw() {
         ctx.fillStyle = me.camouflageAvailable ? 'lightgreen' : 'red';
         ctx.fillText(`CAMOUFLAGE: ${me.camouflageAvailable ? 'READY' : 'RECHARGING'}`, 10, canvas.height - 50);
     }
-    // MODIFICAÇÃO INICIADA: Status da UI para Ilusionista e Borboleta
     if (me.activeAbility === 'illusionist') {
         ctx.font = '24px Arial';
         ctx.fillStyle = me.illusionistAvailable ? 'lightgreen' : 'red';
         ctx.fillText(`ILLUSION: ${me.illusionistAvailable ? 'READY' : 'RECHARGING'}`, 10, canvas.height - 50);
     }
-    // PONTO 2: MUDANÇA DE 'borboleta' para 'butterfly'
     if (me.activeAbility === 'butterfly') {
         ctx.font = '24px Arial';
         let statusText;
@@ -527,7 +517,6 @@ function draw() {
         }
         ctx.fillText(`BUTTERFLY: ${statusText}`, 10, canvas.height - 50);
     }
-    // MODIFICAÇÃO FINALIZADA
     if (me.activeAbility === 'ant') {
         ctx.font = '24px Arial';
         let statusText;
@@ -572,17 +561,13 @@ function draw() {
     }
 
     drawChat();
-
-    // MODIFICAÇÃO INICIADA: Desenhar o inventário
     drawInventory();
-    // MODIFICAÇÃO FINALIZADA
 
     if (isMenuOpen) {
         drawMenu();
     }
 }
 
-// MODIFICAÇÃO INICIADA: Nova função para desenhar o inventário
 function drawInventory() {
     const me = gameState.players[myId];
     if (!me) return;
@@ -591,7 +576,6 @@ function drawInventory() {
     const slotX = canvas.width / 2 - slotSize / 2;
     const slotY = canvas.height - slotSize - 20;
 
-    // Desenha o slot do inventário
     ctx.fillStyle = 'rgba(80, 80, 80, 0.7)';
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
     ctx.lineWidth = 3;
@@ -600,10 +584,14 @@ function drawInventory() {
     ctx.fill();
     ctx.stroke();
 
-    // Desenha o item se houver um no inventário
     if (me.inventory) {
         const sprite = itemSprites[me.inventory.id];
         if (sprite && sprite.complete) {
+            if (me.inventory.id === 'invisibilityCloak' && me.inventory.active) {
+                ctx.save();
+                ctx.globalAlpha = 0.5 + Math.sin(Date.now() / 200) * 0.2;
+            }
+            
             const itemAspectRatio = sprite.width / sprite.height;
             let drawWidth = slotSize * 0.8;
             let drawHeight = drawWidth / itemAspectRatio;
@@ -614,10 +602,13 @@ function drawInventory() {
             const drawX = slotX + (slotSize - drawWidth) / 2;
             const drawY = slotY + (slotSize - drawHeight) / 2;
             ctx.drawImage(sprite, drawX, drawY, drawWidth, drawHeight);
+            
+            if (me.inventory.id === 'invisibilityCloak' && me.inventory.active) {
+                ctx.restore();
+            }
         }
     }
 }
-// MODIFICAÇÃO FINALIZADA
 
 function drawChat() {
     if (chatMessages.length === 0) return;
@@ -642,7 +633,6 @@ function drawChat() {
 }
 
 function getAbilitiesLayout() {
-    // MODIFICAÇÃO INICIADA: Adicionadas e traduzidas novas habilidades (PONTO 2)
     const abilities = [
         { text: 'CHAMELEON', ability: 'chameleon', description: 'Turn into a box to hide.' },
         { text: 'ATHLETE', ability: 'athlete', description: 'Sprint for a short duration.' },
@@ -654,7 +644,6 @@ function getAbilitiesLayout() {
         { text: 'ILLUSIONIST', ability: 'illusionist', description: 'Creates an illusion to mislead zombies.' },
         { text: 'BUTTERFLY', ability: 'butterfly', description: 'When caught, get a 10s flight to escape.' },
     ];
-    // MODIFICAÇÃO FINALIZADA
 
     const menuWidth = 1500, menuHeight = 900;
     const menuX = (canvas.width - menuWidth) / 2, menuY = (canvas.height - menuHeight) / 2;
@@ -684,26 +673,31 @@ function getAbilitiesLayout() {
 
 function getItemsLayout() {
     const items = [
-        { id: 'skateboard', text: 'SKATEBOARD', description: 'Move much faster', price: 100, sprite: skateboardSprite },
+        { id: 'skateboard', text: 'SKATEBOARD', description: 'Move much faster', price: 400, sprite: skateboardSprite },
         { id: 'lightGloves', text: 'LIGHT GLOVES', description: 'Push objects harder', price: 50, sprite: lightGlovesSprite },
-        { id: 'drone', text: 'DRONE', description: 'Throws grenades', price: 50, sprite: droneSprite }
+        { id: 'heavyGloves', text: 'HEAVY GLOVES', description: 'Push items through walls.', price: 100, sprite: heavyGlovesSprite },
+        { id: 'drone', text: 'DRONE', description: 'Throws grenades', price: 300, sprite: droneSprite },
+        { id: 'invisibilityCloak', text: 'CLOAK', description: 'Become invisible', price: 500, sprite: invisibilityCloakSprite }
     ];
 
     const menuWidth = 1500, menuHeight = 900;
     const menuX = (canvas.width - menuWidth) / 2, menuY = (canvas.height - menuHeight) / 2;
+    const cols = 3;
     const btnWidth = 400;
     const btnHeight = 200;
     const gap = 50;
-    const totalGridWidth = items.length * btnWidth + (items.length - 1) * gap;
+    const totalGridWidth = cols * btnWidth + (cols - 1) * gap;
     const startX = menuX + (menuWidth - totalGridWidth) / 2;
     const startY = menuY + 200;
 
     const buttons = items.map((item, index) => {
+        const row = Math.floor(index / cols);
+        const col = index % cols;
         return {
             ...item,
             rect: {
-                x: startX + index * (btnWidth + gap),
-                y: startY,
+                x: startX + col * (btnWidth + gap),
+                y: startY + row * (btnHeight + gap),
                 width: btnWidth,
                 height: btnHeight
             }
@@ -717,7 +711,6 @@ function drawMenu() {
     if (!me) return;
     const menuWidth = 1500, menuHeight = 900;
     const menuX = (canvas.width - menuWidth) / 2, menuY = (canvas.height - menuHeight) / 2;
-    // PONTO 4: Menu cinza transparente
     ctx.fillStyle = 'rgba(77, 76, 76, 0.97)';
     ctx.fillRect(menuX, menuY, menuWidth, menuHeight);
     ctx.strokeStyle = '#000000ff';
@@ -782,13 +775,11 @@ function drawMenu() {
         const { buttons } = getItemsLayout();
         buttons.forEach(btn => {
             const canAfford = me.coins >= btn.price;
-            // MODIFICAÇÃO INICIADA: Lógica da loja com inventário
             let alreadyOwned = me.inventory && me.inventory.id === btn.id;
             let inventoryFull = me.inventory !== null && !alreadyOwned;
             
             const canBuy = canAfford && !alreadyOwned && !inventoryFull;
             ctx.fillStyle = canBuy ? '#282828' : '#1a1a1a';
-            // MODIFICAÇÃO FINALIZADA
             ctx.fillRect(btn.rect.x, btn.rect.y, btn.rect.width, btn.rect.height);
             ctx.strokeStyle = canBuy ? 'white' : '#666';
             ctx.lineWidth = 3;
@@ -813,15 +804,12 @@ function drawMenu() {
             ctx.textAlign = 'right';
             ctx.fillText(costText, btn.rect.x + btn.rect.width - 20, btn.rect.y + btn.rect.height - 20);
             
-            // MODIFICAÇÃO INICIADA: Mensagens de status da loja
             if (alreadyOwned) {
                 ctx.fillStyle = 'rgba(0, 255, 0, 0.5)';
                 ctx.textAlign = 'center';
                 ctx.font = 'bold 20px Arial';
                 ctx.fillText('OWNED', btn.rect.x + btn.rect.width / 2, btn.rect.y + 150);
-			// PONTO 5: REMOVIDA A MENSAGEM "INVENTORY FULL"
             }
-            // MODIFICAÇÃO FINALIZADA
         });
     }
     ctx.font = '20px Arial';
