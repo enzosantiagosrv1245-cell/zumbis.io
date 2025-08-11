@@ -85,16 +85,6 @@ let nextArrowId = 0;
 let nextGrenadeId = 0;
 let nextIllusionId = 0;
 
-function spawnSkateboard() {
-    if (!gameState.skateboard) return;
-    const streetArea = { x: 3090, y: 0, width: 1000, height: 2000 };
-    gameState.skateboard.x = streetArea.x + Math.random() * (streetArea.width - SKATEBOARD_WIDTH);
-    gameState.skateboard.y = streetArea.y + Math.random() * (streetArea.height - SKATEBOARD_HEIGHT);
-    gameState.skateboard.spawned = true;
-    gameState.skateboard.ownerId = null;
-    console.log(`Skateboard spawned at ${gameState.skateboard.x.toFixed(0)}, ${gameState.skateboard.y.toFixed(0)}`);
-}
-
 function initializeGame() {
     gameState = {
         players: {},
