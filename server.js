@@ -1,5 +1,3 @@
-// server.js
-
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
@@ -30,11 +28,11 @@ const ARROW_SPEED = 10;
 const ARROW_KNOCKBACK = 40;
 const ARROW_LIFESPAN_AFTER_HIT = 1000;
 const BOX_FRICTION = 0.94;
-const BOX_PUSH_FORCE = 3;
+const BOX_PUSH_FORCE = 0.9;
 const GLOVES_PUSH_MULTIPLIER = 1.1;
 const BOX_COLLISION_DAMPING = 0.3;
 const ANGULAR_FRICTION = 0.50;
-const TORQUE_FACTOR = 0.002;
+const TORQUE_FACTOR = 0.004;
 const ZOMBIE_SPEED_BOOST = 1.10;
 const SPY_DURATION = 20000;
 const SPY_COOLDOWN = 45000;
@@ -60,8 +58,8 @@ const BUTTERFLY_DURATION = 10000;
 const BUTTERFLY_SPEED_MULTIPLIER = 4;
 const INVISIBILITY_CLOAK_BREAK_DISTANCE = 400;
 
-const PLAYER_ACCELERATION = 0.4;
-const PLAYER_FRICTION = 0.80;
+const PLAYER_ACCELERATION = 1.2;
+const PLAYER_FRICTION = 0.90;
 const FIGHTER_PUNCH_RANGE = 150;
 const FIGHTER_PUNCH_KNOCKBACK = 400;
 const FIGHTER_PUNCH_COOLDOWN = 1000;
@@ -591,7 +589,7 @@ function updateGameState() {
 
             let effectiveSpeed = player.speed;
             if (player.role === 'zombie') {
-                effectiveSpeed *= 1.01;
+                effectiveSpeed *= ZOMBIE_SPEED_BOOST;
             }
             const maxSpeedSq = effectiveSpeed * effectiveSpeed;
             const currentSpeedSq = player.vx * player.vx + player.vy * player.vy;
