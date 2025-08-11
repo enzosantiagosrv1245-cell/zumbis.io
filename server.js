@@ -27,11 +27,11 @@ const ANT_SPEED_FACTOR = 0.7;
 const ARROW_SPEED = 10;
 const ARROW_KNOCKBACK = 40;
 const ARROW_LIFESPAN_AFTER_HIT = 1000;
-const BOX_FRICTION = 0.95;         // Menos atrito, desliza mais
-const BOX_PUSH_FORCE = 1;        // Empurrão inicial mais forte
-const BOX_COLLISION_DAMPING = 0.05; // Colisões mais "vivas"
-const ANGULAR_FRICTION = 0.85;     // O giro diminui mais suavemente
-const TORQUE_FACTOR = 0.0002;       // Menos força de rotação ao empurrar
+const BOX_FRICTION = 0.92;
+const BOX_PUSH_FORCE = 0.4;
+const BOX_COLLISION_DAMPING = 0.05;
+const ANGULAR_FRICTION = 0.90; // Fricção alta, mas suave. O giro para de forma natural.
+const TORQUE_FACTOR = 0.0001;    // MUITO BAIXO. O objeto quase não recebe força para girar.
 const GLOVES_PUSH_MULTIPLIER = 1.1;
 const ZOMBIE_SPEED_BOOST = 1.10;
 const SPY_DURATION = 20000;
@@ -65,6 +65,9 @@ const FIGHTER_PUNCH_KNOCKBACK = 400;
 const FIGHTER_PUNCH_COOLDOWN = 1000;
 const FIGHTER_PUNCH_ANGLE_TOLERANCE = Math.PI / 4;
 
+const TRAP_DURATION = 3000;
+const TRAP_SIZE = 50;
+
 const ABILITY_COSTS = {
     chameleon: 100,
     athlete: 150,
@@ -78,10 +81,15 @@ const ABILITY_COSTS = {
     fighter: 250,
 };
 
+const ZOMBIE_ABILITY_COSTS = {
+    trapper: 50
+};
+
 let gameState = {};
 let nextArrowId = 0;
 let nextGrenadeId = 0;
 let nextIllusionId = 0;
+let nextTrapId = 0;
 
 function initializeGame() {
     gameState = {
@@ -92,8 +100,10 @@ function initializeGame() {
         smokeClouds: [],
         groundItems: [],
         illusions: [],
+        traps: [],
         takenAbilities: [],
         abilityCosts: ABILITY_COSTS,
+        zombieAbilityCosts: ZOMBIE_ABILITY_COSTS,
         gamePhase: 'waiting',
         startTime: 60,
         timeLeft: ROUND_DURATION,
@@ -259,7 +269,7 @@ function createNewPlayer(socket) {
         rotation: 0,
         role: 'human',
         activeAbility: ' ',
-        coins: 50,
+        coins: 100,
         isCamouflaged: false,
         camouflageAvailable: true,
         isSprinting: false,
@@ -273,7 +283,6 @@ function createNewPlayer(socket) {
         arrowAmmo: 0,
         engineerAbilityUsed: false,
         isInDuct: false,
-        footprintCooldown: 0,
         chemistBombs: 0,
         zombieSpeed: null,
         zombieWidth: null,
@@ -287,6 +296,10 @@ function createNewPlayer(socket) {
         isInvisible: false,
         isPunching: false,
         lastPunchTime: 0,
+        zombieAbility: null,
+        trapsLeft: 0,
+        isTrapped: false,
+        trappedUntil: 0,
         input: {
             movement: { up: false, down: false, left: false, right: false },
             mouse: { x: 0, y: 0 },
@@ -352,7 +365,7 @@ function checkCollisionSAT(poly1, poly2) {
         const proj1 = project(vertices1, axis);
         const proj2 = project(vertices2, axis);
         const overlap = Math.min(proj1.max, proj2.max) - Math.max(proj1.min, proj2.min);
-        if (overlap < 0.1) { // Consider touching (small overlap) as no collision for knockback logic
+        if (overlap < 0.1) {
             return null;
         }
         if (overlap < minOverlap) {
@@ -493,6 +506,14 @@ function updateGameState() {
 
     for (const id in gameState.players) {
         const player = gameState.players[id];
+
+        if (player.isTrapped) {
+            if (Date.now() > player.trappedUntil) {
+                player.isTrapped = false;
+            } else {
+                continue;
+            }
+        }
 
         if (player.isInvisible) {
             let cloakBroken = false;
@@ -763,6 +784,20 @@ function updateGameState() {
         player.y = Math.max(0, Math.min(player.y, WORLD_HEIGHT - player.height));
     }
 
+    for (let i = gameState.traps.length - 1; i >= 0; i--) {
+        const trap = gameState.traps[i];
+        for (const playerId in gameState.players) {
+            const player = gameState.players[playerId];
+            if (player.role === 'human' && !player.isTrapped && isColliding(player, trap)) {
+                player.isTrapped = true;
+                player.trappedUntil = Date.now() + TRAP_DURATION;
+                gameState.traps.splice(i, 1);
+                io.emit('newMessage', { name: 'Server', text: `${player.name} stepped on a trap!` });
+                break;
+            }
+        }
+    }
+
     if (gameState.gamePhase === 'running') {
         const players = gameState.players;
         let humanCount = 0;
@@ -774,7 +809,7 @@ function updateGameState() {
                 for (const id2 of playerIds) {
                     if (id1 === id2) continue;
                     const player2 = players[id2];
-                    if ((player2.role === 'human' || player2.isSpying) && isCollidingCircleCircle(player1.hitbox, player2.hitbox) && !player2.isFlying) {
+                    if ((player2.role === 'human' || player2.isSpying) && isCollidingCircleCircle(player1.hitbox, player2.hitbox) && !player2.isFlying && !player2.isTrapped) {
 
                         if (player2.inventory && player2.inventory.id === 'antidote') {
                             player2.inventory = null;
@@ -974,6 +1009,20 @@ io.on('connection', (socket) => {
         }
     });
 
+    socket.on('buyZombieAbility', (abilityId) => {
+        const player = gameState.players[socket.id];
+        const cost = ZOMBIE_ABILITY_COSTS[abilityId];
+
+        if (player && player.role === 'zombie' && !player.zombieAbility && cost !== undefined && player.coins >= cost) {
+            player.coins -= cost;
+            player.zombieAbility = abilityId;
+
+            if (abilityId === 'trapper') {
+                player.trapsLeft = 5;
+            }
+        }
+    });
+
     socket.on('buyItem', (itemId) => {
         const player = gameState.players[socket.id];
         if (!player || player.inventory) return;
@@ -1056,6 +1105,19 @@ io.on('connection', (socket) => {
                 player.x = WORLD_WIDTH / 2 + 500;
                 player.y = WORLD_HEIGHT / 2;
                 player.teleportCooldownUntil = Date.now() + 60000;
+            }
+        }
+
+        if (actionData.type === 'zombie_ability' && player.role === 'zombie') {
+            if (player.zombieAbility === 'trapper' && player.trapsLeft > 0) {
+                player.trapsLeft--;
+                gameState.traps.push({
+                    id: nextTrapId++,
+                    x: player.x,
+                    y: player.y,
+                    width: TRAP_SIZE,
+                    height: TRAP_SIZE
+                });
             }
         }
 
@@ -1417,6 +1479,7 @@ setInterval(() => {
                 player.engineerAbilityUsed = false;
                 player.isInDuct = false;
                 player.illusionistPassiveAvailable = true;
+                player.zombieAbility = null;
             }
         }
     }
