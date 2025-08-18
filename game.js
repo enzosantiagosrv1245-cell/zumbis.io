@@ -71,6 +71,8 @@ const trapSprite = loadImage('Sprites/Trap.png');
 const drumSprite = loadImage('Sprites/Drum.png');
 const zoomSprite = loadImage('Sprites/Zoom.png');
 const gravityGloveSprite = loadImage('Sprites/GravityGlove.png');
+const cannonSprite = loadImage('Sprites/Cannon.png');
+const largeBallSprite = loadImage('Sprites/LargeBall.png');
 
 const itemSprites = {
     skateboard: skateboardSprite,
@@ -81,6 +83,8 @@ const itemSprites = {
     Drum: drumSprite,
     zoom: zoomSprite,
     gravityGlove: gravityGloveSprite,
+    grenade: grenadeSprite,
+    cannon: cannonSprite,
 };
 
 // =================================================================
@@ -100,6 +104,7 @@ let gameState = {
     groundItems: [],
     illusions: [],
     traps: [],
+    largeBalls: [],
     hardWalls: []
 };
 const movement = {
@@ -113,6 +118,7 @@ let mouse = {
     y: 0
 };
 let isMenuOpen = false;
+let isHowToPlayOpen = false;
 let activeMenuTab = 'abilities';
 const chatInput = document.getElementById('chatInput');
 let isChatting = false;
@@ -151,7 +157,7 @@ socket.on('newMessage', (message) => {
 // INPUT HANDLING
 // =================================================================
 window.addEventListener('keydown', function(event) {
-    if (document.getElementById('nickname-container') || document.getElementById('how-to-play-container')) {
+    if (document.getElementById('nickname-container')) {
         return;
     }
     const key = event.key.toLowerCase();
@@ -181,20 +187,50 @@ window.addEventListener('keydown', function(event) {
         return;
     }
 
+    if (key === 'x') {
+        isHowToPlayOpen = !isHowToPlayOpen;
+        if (isHowToPlayOpen) {
+            isMenuOpen = false;
+        }
+    }
+
     if (key === 'b') {
         if (me) {
             isMenuOpen = !isMenuOpen;
             if (isMenuOpen) {
-                activeMenuTab = (me.role === 'zombie') ? 'zombie_items' : 'abilities';
+                isHowToPlayOpen = false;
+                if (me.role === 'zombie') {
+                    activeMenuTab = 'zombie_items';
+                } else if (me.role === 'human') {
+                    activeMenuTab = 'abilities';
+                } else if (me.role === 'neutral') {
+                    activeMenuTab = 'neutral_abilities';
+                }
             }
         }
     }
 
-    if (isMenuOpen) {
+    if (isMenuOpen || isHowToPlayOpen) {
         return;
     }
 
     switch (key) {
+        case '1':
+            if (me && me.role === 'neutral') {
+                socket.emit('playerAction', {
+                    type: 'select_slot',
+                    slot: 0
+                });
+            }
+            break;
+        case '2':
+            if (me && me.role === 'neutral') {
+                socket.emit('playerAction', {
+                    type: 'select_slot',
+                    slot: 1
+                });
+            }
+            break;
         case 'w':
         case 'arrowup':
             movement.up = true;
@@ -249,7 +285,7 @@ window.addEventListener('keydown', function(event) {
 });
 
 window.addEventListener('keyup', function(event) {
-    if (document.getElementById('nickname-container') || document.getElementById('how-to-play-container')) {
+    if (document.getElementById('nickname-container')) {
         return;
     }
     const key = event.key.toLowerCase();
@@ -282,7 +318,7 @@ chatInput.onblur = () => {
 };
 
 canvas.addEventListener('mousemove', function(event) {
-    if (document.getElementById('nickname-container') || document.getElementById('how-to-play-container')) {
+    if (document.getElementById('nickname-container')) {
         return;
     }
     const rect = canvas.getBoundingClientRect();
@@ -291,7 +327,7 @@ canvas.addEventListener('mousemove', function(event) {
 });
 
 canvas.addEventListener('mousedown', function(event) {
-    if (document.getElementById('nickname-container') || document.getElementById('how-to-play-container')) {
+    if (document.getElementById('nickname-container')) {
         return;
     }
     if (isMenuOpen) {
@@ -317,7 +353,7 @@ canvas.addEventListener('mousedown', function(event) {
                     }
                 }
             }
-        } else {
+        } else if (me.role === 'human') {
             const atmObject = gameState.furniture.find(item => item.id === 'atm');
             let isNearATM = false;
             if (atmObject) {
@@ -388,9 +424,47 @@ canvas.addEventListener('mousedown', function(event) {
                     }
                 }
             }
+        } else if (me.role === 'neutral') {
+            const abilitiesTabBtn = getNeutralAbilitiesTabRect();
+            if (isClickInside(mouse, abilitiesTabBtn)) {
+                activeMenuTab = 'neutral_abilities';
+                return;
+            }
+
+            if (activeMenuTab === 'neutral_abilities' && !me.neutralAbility) {
+                const {
+                    buttons
+                } = getNeutralAbilitiesLayout();
+                for (const btn of buttons) {
+                    if (isClickInside(mouse, btn.rect)) {
+                        socket.emit('chooseNeutralAbility', btn.ability);
+                        isMenuOpen = false;
+                        return;
+                    }
+                }
+            }
         }
     } else {
         const me = gameState.players[myId];
+
+        if (me && me.role === 'neutral' && me.neutralAbility === 'troll' && me.inventory && me.selectedSlot !== undefined) {
+            const selectedItem = me.inventory[me.selectedSlot];
+            if (selectedItem) {
+                if (selectedItem.id === 'grenade') {
+                    socket.emit('playerAction', {
+                        type: 'troll_throw_grenade'
+                    });
+                    return;
+                }
+                if (selectedItem.id === 'cannon') {
+                    socket.emit('playerAction', {
+                        type: 'troll_fire_cannon'
+                    });
+                    return;
+                }
+            }
+        }
+
         if (me && me.inventory && me.inventory.id === 'drone') {
             socket.emit('playerAction', {
                 type: 'drop_grenade'
@@ -482,128 +556,15 @@ function showNicknameMenu() {
         if (nickname) {
             socket.emit('setNickname', nickname);
             document.body.removeChild(menuContainer);
-            showHowToPlayScreen();
         }
     });
-}
-
-function showHowToPlayScreen() {
-    const existingMenu = document.getElementById('how-to-play-container');
-    if (existingMenu) return;
-
-    const menuContainer = document.createElement('div');
-    menuContainer.id = 'how-to-play-container';
-    Object.assign(menuContainer.style, {
-        position: 'absolute',
-        top: '0',
-        left: '0',
-        width: '100%',
-        height: '100%',
-        backgroundColor: 'rgba(0, 0, 0, 0.95)',
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'center',
-        alignItems: 'center',
-        zIndex: '101',
-        fontFamily: 'Arial, sans-serif',
-        color: 'white',
-        overflowY: 'auto',
-        padding: '20px'
-    });
-
-    const contentWrapper = document.createElement('div');
-    Object.assign(contentWrapper.style, {
-        maxWidth: '800px',
-        textAlign: 'left',
-        lineHeight: '1.6'
-    });
-
-    const title = document.createElement('h1');
-    title.textContent = 'How to Play';
-    Object.assign(title.style, {
-        textAlign: 'center',
-        color: '#2ecc71',
-        marginBottom: '25px',
-        fontSize: '3em'
-    });
-
-    const objectiveHeader = document.createElement('h2');
-    objectiveHeader.textContent = 'Objective';
-    Object.assign(objectiveHeader.style, {
-        borderBottom: '2px solid #2ecc71',
-        paddingBottom: '5px',
-        marginBottom: '15px',
-        fontSize: '1.8em'
-    });
-
-    const objectiveText = document.createElement('p');
-    objectiveText.innerHTML = `Some players starts as a <strong>Zombie</strong>, and the rest are <strong>Humans</strong>.<br> 
-- <strong>Humans</strong>: Survive until the timer runs out. Collect coins to buy abilities and items.<br> 
-- <strong>Zombies</strong>: Infect all humans before the time runs out.`;
-    Object.assign(objectiveText.style, {
-        fontSize: '1.2em',
-        marginBottom: '20px'
-    });
-
-    const controlsHeader = document.createElement('h2');
-    controlsHeader.textContent = 'Controls';
-    Object.assign(controlsHeader.style, {
-        borderBottom: '2px solid #2ecc71',
-        paddingBottom: '5px',
-        marginBottom: '15px',
-        fontSize: '1.8em'
-    });
-
-    const controlsList = document.createElement('ul');
-    controlsList.innerHTML = ` 
-<li><strong>W, A, S, D / Arrow Keys</strong>: Move your character.</li> 
-<li><strong>Mouse</strong>: Aim your character or abilities.</li> 
-<li><strong>Left Click</strong>: Use primary action (e.g., shoot arrow, punch) or place barrier.</li> 
-<li><strong>B</strong>: Open the Shop menu.</li> 
-<li><strong>C</strong>: Use ability / Consume item.</li> 
-<li><strong>E</strong>: Interact with objects or pick up items.</li> 
-<li><strong>G</strong>: Drop your current held item.</li> 
-<li><strong>Z</strong>: (Zombie only) Teleport back to spawn (cooldown).</li> 
-<li><strong>Enter</strong>: Open or send a chat message.</li> 
-`;
-    Object.assign(controlsList.style, {
-        listStyle: 'none',
-        padding: '0',
-        fontSize: '1.2em'
-    });
-
-    const continueButton = document.createElement('button');
-    continueButton.textContent = 'Continue to Game';
-    Object.assign(continueButton.style, {
-        padding: '15px 30px',
-        fontSize: '1.2em',
-        border: 'none',
-        borderRadius: '5px',
-        backgroundColor: '#2ecc71',
-        color: 'white',
-        cursor: 'pointer',
-        display: 'block',
-        margin: '30px auto 0 auto'
-    });
-    continueButton.addEventListener('click', () => {
-        document.body.removeChild(menuContainer);
-    });
-
-    contentWrapper.appendChild(title);
-    contentWrapper.appendChild(objectiveHeader);
-    contentWrapper.appendChild(objectiveText);
-    contentWrapper.appendChild(controlsHeader);
-    contentWrapper.appendChild(controlsList);
-    contentWrapper.appendChild(continueButton);
-    menuContainer.appendChild(contentWrapper);
-    document.body.appendChild(menuContainer);
 }
 
 // =================================================================
 // DRAWING & RENDERING
 // =================================================================
 function draw() {
-    if (document.getElementById('nickname-container') || document.getElementById('how-to-play-container')) {
+    if (document.getElementById('nickname-container')) {
         ctx.fillStyle = 'black';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         return;
@@ -621,7 +582,7 @@ function draw() {
     const me = gameState.players[myId];
     const hasGravityGloves = me && me.inventory && me.inventory.id === 'gravityGlove';
     const unmovableFurnitureIds = ['atm'];
-    const zoomLevel = (me.inventory && me.inventory.id === 'zoom') ? 1.2 : 1.0;
+    const zoomLevel = (me.inventory && me.inventory.id === 'zoom') ? 0.8 : 1.0;
     const cameraX = (me.x + me.width / 2) - canvas.width / (2 * zoomLevel);
     const cameraY = (me.y + me.height / 2) - canvas.height / (2 * zoomLevel);
 
@@ -809,6 +770,21 @@ function draw() {
             ctx.drawImage(human, -player.width / 2, -player.height / 2, player.width, player.height);
         }
 
+        if (player.role === 'neutral' && player.neutralAbility === 'troll' && player.selectedSlot !== undefined && player.inventory && player.inventory[player.selectedSlot]) {
+            const item = player.inventory[player.selectedSlot];
+            if (item.id === 'grenade' && grenadeSprite.complete) {
+                const itemWidth = 40;
+                const itemHeight = 40;
+                const itemDistance = player.width / 2;
+                ctx.drawImage(grenadeSprite, itemDistance, -itemHeight / 2, itemWidth, itemHeight);
+            } else if (item.id === 'cannon' && cannonSprite.complete) {
+                const itemWidth = 80;
+                const itemHeight = 50;
+                const itemDistance = player.width / 2;
+                ctx.drawImage(cannonSprite, itemDistance, -itemHeight / 2, itemWidth, itemHeight);
+            }
+        }
+
         if (player.carryingObject) {
             const carried = player.carryingObject;
             const sprite = furnitureSprites[carried.id] || (carried.id.startsWith('box') ? box : null);
@@ -849,7 +825,7 @@ function draw() {
         }
 
         if (!player.isHidden && !player.isInvisible) {
-            ctx.fillStyle = (player.role === 'zombie' || player.isSpying) ? '#2ecc71' : 'white';
+            ctx.fillStyle = (player.role === 'zombie' || player.isSpying) ? '#2ecc71' : (player.role === 'neutral' ? '#f1c40f' : 'white');
             ctx.strokeStyle = 'black';
             ctx.lineWidth = 5;
             ctx.textAlign = 'center';
@@ -880,6 +856,18 @@ function draw() {
         }
     }
 
+    if (gameState.largeBalls) {
+        for (const ball of gameState.largeBalls) {
+            if (largeBallSprite.complete) {
+                ctx.save();
+                ctx.translate(ball.x, ball.y);
+                ctx.rotate(ball.rotation);
+                ctx.drawImage(largeBallSprite, -ball.radius, -ball.radius, ball.radius * 2, ball.radius * 2);
+                ctx.restore();
+            }
+        }
+    }
+
     ctx.restore();
 
     drawHudBackgrounds();
@@ -889,7 +877,93 @@ function draw() {
     if (isMenuOpen) {
         drawMenu();
     }
+    if (isHowToPlayOpen) {
+        drawHowToPlayTab();
+    }
 }
+
+function drawHowToPlayTab() {
+    const tabWidth = 800;
+    const tabHeight = 650;
+    const tabX = (canvas.width - tabWidth) / 2;
+    const tabY = (canvas.height - tabHeight) / 2;
+
+    // Draw background
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.95)';
+    ctx.strokeStyle = '#2ecc71';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.roundRect(tabX, tabY, tabWidth, tabHeight, [15]);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = 'white';
+    ctx.textAlign = 'center';
+
+    // Title
+    ctx.font = 'bold 48px Arial';
+    ctx.fillStyle = '#2ecc71';
+    ctx.fillText('How to Play', canvas.width / 2, tabY + 70);
+
+    ctx.textAlign = 'left';
+    ctx.fillStyle = 'white';
+    const contentX = tabX + 50;
+    let currentY = tabY + 140;
+
+    // Objective
+    ctx.font = 'bold 28px Arial';
+    ctx.fillText('Objective', contentX, currentY);
+    currentY += 10;
+    ctx.fillStyle = '#2ecc71';
+    ctx.fillRect(contentX, currentY, 130, 3); // Underline
+    currentY += 40;
+
+    ctx.fillStyle = 'white';
+    ctx.font = '18px Arial';
+    ctx.fillText('• Humans: Survive until the timer runs out. Collect coins to buy abilities and items.', contentX, currentY);
+    currentY += 30;
+    ctx.fillText('• Zombies: Infect all humans before the time runs out.', contentX, currentY);
+    currentY += 60;
+
+    // Controls
+    ctx.font = 'bold 28px Arial';
+    ctx.fillText('Controls', contentX, currentY);
+    currentY += 10;
+    ctx.fillStyle = '#2ecc71';
+    ctx.fillRect(contentX, currentY, 120, 3); // Underline
+    currentY += 40;
+
+    ctx.fillStyle = 'white';
+    ctx.font = '18px Arial';
+    const controls = [
+        ['W, A, S, D / Arrow Keys', 'Move your character.'],
+        ['Mouse', 'Aim your character or abilities.'],
+        ['Left Click', 'Use primary action (shoot, punch, etc).'],
+        ['B', 'Open the Shop menu.'],
+        ['C', 'Use ability / Consume item.'],
+        ['E', 'Interact with objects or pick up items.'],
+        ['G', 'Drop your current held item.'],
+        ['Z', '(Zombie only) Teleport back to spawn.'],
+        ['X', 'Open/Close this "How to Play" tab.'],
+        ['Enter', 'Open or send a chat message.'],
+    ];
+
+    const keyColWidth = 280;
+    for (const [key, desc] of controls) {
+        ctx.font = 'bold 18px Arial';
+        ctx.fillText(key + ':', contentX, currentY);
+        ctx.font = '18px Arial';
+        ctx.fillText(desc, contentX + keyColWidth, currentY);
+        currentY += 30;
+    }
+
+    // Close instruction
+    ctx.textAlign = 'center';
+    ctx.font = '22px Arial';
+    ctx.fillStyle = '#aaa';
+    ctx.fillText('Press "X" to close', canvas.width / 2, tabY + tabHeight - 35);
+}
+
 
 function drawHudBackgrounds() {
     ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
@@ -936,8 +1010,20 @@ function drawHudText(me) {
         const seconds = gameState.timeLeft % 60;
         ctx.fillText(`${minutes}:${String(seconds).padStart(2, '0')}`, canvas.width / 2, 55);
         ctx.font = '30px Arial';
-        ctx.fillStyle = me.role === 'zombie' ? '#2ecc71' : 'blue';
-        ctx.fillText(me.role === 'zombie' ? 'INFECT THE HUMANS!' : 'SURVIVE!', canvas.width / 2, 90);
+
+        let roleText, roleColor;
+        if (me.role === 'zombie') {
+            roleText = 'INFECT THE HUMANS!';
+            roleColor = '#2ecc71';
+        } else if (me.role === 'human') {
+            roleText = 'SURVIVE!';
+            roleColor = 'blue';
+        } else if (me.role === 'neutral') {
+            roleText = 'TROLL!';
+            roleColor = '#f1c40f';
+        }
+        ctx.fillStyle = roleColor;
+        ctx.fillText(roleText, canvas.width / 2, 90);
     }
 
     ctx.font = '30px Arial';
@@ -956,7 +1042,19 @@ function drawHudText(me) {
     const yPos = canvas.height - 95;
 
     if (me.role !== 'zombie') {
-        if (me.activeAbility === 'archer') {
+        if (me.role === 'neutral' && me.neutralAbility === 'troll' && me.inventory && me.selectedSlot !== undefined) {
+            const item = me.inventory[me.selectedSlot];
+            if (item && item.id === 'cannon') {
+                if (Date.now() < (item.cooldownUntil || 0)) {
+                    const remaining = Math.ceil((item.cooldownUntil - Date.now()) / 1000);
+                    ctx.fillStyle = 'red';
+                    ctx.fillText(`CANNON: ${remaining}s`, canvas.width - 30, yPos);
+                } else {
+                    ctx.fillStyle = 'lightgreen';
+                    ctx.fillText(`CANNON: READY`, canvas.width - 30, yPos);
+                }
+            }
+        } else if (me.activeAbility === 'archer') {
             ctx.fillText(`AMMO: ${me.arrowAmmo}`, canvas.width - 30, yPos);
         } else if (me.inventory && me.inventory.id === 'drone' && gameState.drones[me.id]) {
             ctx.fillText(`GRENADES: ${gameState.drones[me.id].ammo}`, canvas.width - 30, yPos);
@@ -1025,38 +1123,92 @@ function drawHudText(me) {
 function drawInventory() {
     const me = gameState.players[myId];
     if (!me || me.role === 'zombie') return;
-    const slotSize = 80;
-    const slotX = canvas.width / 2 - slotSize / 2;
-    const slotY = canvas.height - slotSize - 20;
 
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.roundRect(slotX, slotY, slotSize, slotSize, [10]);
-    ctx.fill();
-    ctx.stroke();
+    if (me.role === 'neutral') {
+        if (me.neutralAbility !== 'troll' || !me.inventory) return;
 
-    if (me.inventory) {
-        const sprite = itemSprites[me.inventory.id];
-        if (sprite && sprite.complete) {
-            if (me.inventory.id === 'invisibilityCloak' && me.inventory.active) {
-                ctx.save();
-                ctx.globalAlpha = 0.5 + Math.sin(Date.now() / 200) * 0.2;
+        const slotSize = 80;
+        const gap = 15;
+        const numSlots = 2;
+        const totalWidth = (numSlots * slotSize) + ((numSlots - 1) * gap);
+        const startX = canvas.width / 2 - totalWidth / 2;
+        const slotY = canvas.height - slotSize - 20;
+
+        for (let i = 0; i < numSlots; i++) {
+            const slotX = startX + i * (slotSize + gap);
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+            ctx.strokeStyle = (me.selectedSlot === i) ? '#f1c40f' : 'rgba(255, 255, 255, 0.5)';
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.roundRect(slotX, slotY, slotSize, slotSize, [10]);
+            ctx.fill();
+            ctx.stroke();
+
+            const item = me.inventory[i];
+            if (item) {
+                const sprite = itemSprites[item.id];
+                if (sprite && sprite.complete) {
+                    const itemAspectRatio = sprite.width / sprite.height;
+                    let drawWidth = slotSize * 0.8;
+                    let drawHeight = drawWidth / itemAspectRatio;
+                    if (drawHeight > slotSize * 0.8) {
+                        drawHeight = slotSize * 0.8;
+                        drawWidth = drawHeight * itemAspectRatio;
+                    }
+                    const drawX = slotX + (slotSize - drawWidth) / 2;
+                    const drawY = slotY + (slotSize - drawHeight) / 2;
+                    ctx.drawImage(sprite, drawX, drawY, drawWidth, drawHeight);
+
+                    if (item.quantity > 0) {
+                        ctx.fillStyle = 'white';
+                        ctx.strokeStyle = 'black';
+                        ctx.lineWidth = 3;
+                        ctx.font = 'bold 20px Arial';
+                        ctx.textAlign = 'right';
+                        ctx.strokeText(item.quantity, slotX + slotSize - 8, slotY + slotSize - 8);
+                        ctx.fillText(item.quantity, slotX + slotSize - 8, slotY + slotSize - 8);
+                    }
+                }
             }
-            const itemAspectRatio = sprite.width / sprite.height;
-            let drawWidth = slotSize * 0.8;
-            let drawHeight = drawWidth / itemAspectRatio;
-            if (drawHeight > slotSize * 0.8) {
-                drawHeight = slotSize * 0.8;
-                drawWidth = drawHeight * itemAspectRatio;
-            }
-            const drawX = slotX + (slotSize - drawWidth) / 2;
-            const drawY = slotY + (slotSize - drawHeight) / 2;
-            ctx.drawImage(sprite, drawX, drawY, drawWidth, drawHeight);
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+            ctx.font = '16px Arial';
+            ctx.textAlign = 'left';
+            ctx.fillText(i + 1, slotX + 8, slotY + 20);
+        }
+    } else if (me.role === 'human') {
+        const slotSize = 80;
+        const slotX = canvas.width / 2 - slotSize / 2;
+        const slotY = canvas.height - slotSize - 20;
 
-            if (me.inventory.id === 'invisibilityCloak' && me.inventory.active) {
-                ctx.restore();
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.roundRect(slotX, slotY, slotSize, slotSize, [10]);
+        ctx.fill();
+        ctx.stroke();
+
+        if (me.inventory) {
+            const sprite = itemSprites[me.inventory.id];
+            if (sprite && sprite.complete) {
+                if (me.inventory.id === 'invisibilityCloak' && me.inventory.active) {
+                    ctx.save();
+                    ctx.globalAlpha = 0.5 + Math.sin(Date.now() / 200) * 0.2;
+                }
+                const itemAspectRatio = sprite.width / sprite.height;
+                let drawWidth = slotSize * 0.8;
+                let drawHeight = drawWidth / itemAspectRatio;
+                if (drawHeight > slotSize * 0.8) {
+                    drawHeight = slotSize * 0.8;
+                    drawWidth = drawHeight * itemAspectRatio;
+                }
+                const drawX = slotX + (slotSize - drawWidth) / 2;
+                const drawY = slotY + (slotSize - drawHeight) / 2;
+                ctx.drawImage(sprite, drawX, drawY, drawWidth, drawHeight);
+
+                if (me.inventory.id === 'invisibilityCloak' && me.inventory.active) {
+                    ctx.restore();
+                }
             }
         }
     }
@@ -1094,7 +1246,7 @@ function drawChat() {
         ctx.fillText(msg.name + ':', messageX, messageY);
 
         ctx.font = '18px Arial';
-        ctx.fillStyle = 'white';
+        ctx.fillStyle = msg.color || 'white';
         const nameWidth = ctx.measureText(msg.name + ': ').width;
         ctx.fillText(msg.text, messageX + nameWidth, messageY);
     });
@@ -1104,7 +1256,13 @@ function drawChat() {
 function drawMenu() {
     const me = gameState.players[myId];
     if (!me) return;
-    (me.role === 'zombie') ? drawZombieMenu(me): drawHumanMenu(me);
+    if (me.role === 'zombie') {
+        drawZombieMenu(me);
+    } else if (me.role === 'human') {
+        drawHumanMenu(me);
+    } else if (me.role === 'neutral') {
+        drawNeutralMenu(me);
+    }
 }
 
 function drawZombieMenu(me) {
@@ -1314,6 +1472,62 @@ function drawHumanMenu(me) {
     ctx.fillText('PRESS "B" TO CLOSE', canvas.width / 2 + 580, menuY + menuHeight - 20);
 }
 
+function drawNeutralMenu(me) {
+    const menuWidth = 1500,
+        menuHeight = 900;
+    const menuX = (canvas.width - menuWidth) / 2,
+        menuY = (canvas.height - menuHeight) / 2;
+
+    ctx.fillStyle = 'rgba(40, 40, 0, 0.90)';
+    ctx.fillRect(menuX, menuY, menuWidth, menuHeight);
+    ctx.strokeStyle = '#f1c40f';
+    ctx.lineWidth = 5;
+    ctx.strokeRect(menuX, menuY, menuWidth, menuHeight);
+
+    const abilitiesTabBtn = getNeutralAbilitiesTabRect();
+    ctx.fillStyle = activeMenuTab === 'neutral_abilities' ? '#4a4a00' : '#808000';
+    ctx.fillRect(abilitiesTabBtn.x, abilitiesTabBtn.y, abilitiesTabBtn.width, abilitiesTabBtn.height);
+    ctx.fillStyle = 'white';
+    ctx.font = '30px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('ABILITIES', abilitiesTabBtn.x + abilitiesTabBtn.width / 2, abilitiesTabBtn.y + 40);
+
+    if (activeMenuTab === 'neutral_abilities') {
+        ctx.font = '50px Arial';
+        ctx.fillText('NEUTRAL ABILITIES', canvas.width / 2, menuY + 140);
+
+        const {
+            buttons
+        } = getNeutralAbilitiesLayout();
+        buttons.forEach(btn => {
+            const isMyAbility = (me.neutralAbility === btn.ability);
+            ctx.fillStyle = isMyAbility ? '#4a4a00' : '#1a1a00';
+            ctx.fillRect(btn.rect.x, btn.rect.y, btn.rect.width, btn.rect.height);
+            ctx.strokeStyle = isMyAbility ? '#f1c40f' : '#666';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(btn.rect.x, btn.rect.y, btn.rect.width, btn.rect.height);
+            ctx.textAlign = 'center';
+            ctx.font = '20px Arial';
+            ctx.fillStyle = isMyAbility ? 'white' : '#999';
+            ctx.fillText(btn.text, btn.rect.x + btn.rect.width / 2, btn.rect.y + 35);
+            ctx.font = '14px Arial';
+            ctx.fillStyle = isMyAbility ? '#ccc' : '#888';
+            ctx.fillText(btn.description, btn.rect.x + btn.rect.width / 2, btn.rect.y + 65);
+
+            if (isMyAbility) {
+                ctx.fillStyle = 'rgba(0, 255, 0, 0.7)';
+                ctx.font = 'bold 24px Arial';
+                ctx.fillText('ACTIVE', btn.rect.x + btn.rect.width / 2, btn.rect.y + 95);
+            }
+        });
+    }
+    ctx.font = '20px Arial';
+    ctx.fillStyle = 'white';
+    ctx.textAlign = 'center';
+    ctx.fillText('PRESS "B" TO CLOSE', canvas.width / 2 + 580, menuY + menuHeight - 20);
+}
+
+
 // =================================================================
 // HELPERS
 // =================================================================
@@ -1366,6 +1580,36 @@ function getAbilitiesLayout() {
     };
 }
 
+function getNeutralAbilitiesLayout() {
+    const abilities = [{
+        text: 'TROLL',
+        ability: 'troll',
+        description: 'Wreak havoc. Starts with 5 grenades.'
+    }];
+    const menuWidth = 1500,
+        menuHeight = 900;
+    const menuX = (canvas.width - menuWidth) / 2,
+        menuY = (canvas.height - menuHeight) / 2;
+    const cols = 4,
+        btnWidth = 320,
+        btnHeight = 120,
+        gap = 40;
+    const totalGridWidth = cols * btnWidth + (cols - 1) * gap;
+    const startX = menuX + (menuWidth - totalGridWidth) / 2;
+    const startY = menuY + 200;
+    return {
+        buttons: abilities.map((ability, index) => ({ ...ability,
+            rect: {
+                x: startX + (index % cols) * (btnWidth + gap),
+                y: startY + Math.floor(index / cols) * (btnHeight + gap),
+                width: btnWidth,
+                height: btnHeight
+            }
+        }))
+    };
+}
+
+
 function getZombieItemsLayout() {
     const abilities = [{
         id: 'trap',
@@ -1412,9 +1656,15 @@ function getItemsLayout() {
     }, {
         id: 'antidote',
         text: 'ANTIDOTE',
-        description: 'Press C to consume.',
+        description: 'Gives a chance to resist infection.',
         price: 20,
         sprite: antidoteSprite
+    }, {
+        id: 'zoom',
+        text: 'ZOOM',
+        description: 'Zooms out the camera by 20%.',
+        price: 150,
+        sprite: zoomSprite
     }, ];
     const menuWidth = 1500,
         menuHeight = 900;
@@ -1458,13 +1708,7 @@ function getRareItemsLayout() {
         description: 'Become invisible',
         price: 200,
         sprite: invisibilityCloakSprite
-    }, {
-        id: 'zoom',
-        text: 'ZOOM',
-        description: 'Gives 20% camera zoom.',
-        price: 150,
-        sprite: zoomSprite
-    }];
+    }, ];
     const menuWidth = 1500,
         menuHeight = 900;
     const menuX = (canvas.width - menuWidth) / 2,
@@ -1494,7 +1738,7 @@ function isClickInside(pos, rect) {
 
 function getPlayerAngle(player) {
     if (!player) return 0;
-    const zoomLevel = (player.inventory && player.inventory.id === 'zoom') ? 1.2 : 1.0;
+    const zoomLevel = (player.inventory && player.inventory.id === 'zoom') ? 0.8 : 1.0;
     const cx = canvas.width / (2 * zoomLevel);
     const cy = canvas.height / (2 * zoomLevel);
     const dx = mouse.x / zoomLevel - cx;
@@ -1546,14 +1790,26 @@ function getZombieAbilitiesTabRect() {
     };
 }
 
+function getNeutralAbilitiesTabRect() {
+    const mX = (canvas.width - 1500) / 2,
+        mY = (canvas.height - 900) / 2;
+    return {
+        x: mX + 10,
+        y: mY + 10,
+        width: 200,
+        height: 60
+    };
+}
+
+
 // =================================================================
 // GAME LOOP
 // =================================================================
 function gameLoop() {
-    if (myId && gameState.players[myId] && !document.getElementById('nickname-container') && !document.getElementById('how-to-play-container')) {
+    if (myId && gameState.players[myId] && !document.getElementById('nickname-container')) {
         const me = gameState.players[myId];
         const rot = getPlayerAngle(me);
-        const zoomLevel = (me.inventory && me.inventory.id === 'zoom') ? 1.2 : 1.0;
+        const zoomLevel = (me.inventory && me.inventory.id === 'zoom') ? 0.8 : 1.0;
         const cameraX = (me.x + me.width / 2) - canvas.width / (2 * zoomLevel);
         const cameraY = (me.y + me.height / 2) - canvas.height / (2 * zoomLevel);
         const worldMouse = {
