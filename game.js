@@ -73,6 +73,8 @@ const zoomSprite = loadImage('Sprites/Zoom.png');
 const gravityGloveSprite = loadImage('Sprites/GravityGlove.png');
 const cannonSprite = loadImage('Sprites/Cannon.png');
 const largeBallSprite = loadImage('Sprites/LargeBall.png');
+const portalsSprite = loadImage('Sprites/Portals.png');
+const inventoryUpgradeSprite = loadImage('Sprites/Slot  .png');
 
 const itemSprites = {
     skateboard: skateboardSprite,
@@ -85,6 +87,8 @@ const itemSprites = {
     gravityGlove: gravityGloveSprite,
     grenade: grenadeSprite,
     cannon: cannonSprite,
+    portals: portalsSprite,
+    inventoryUpgrade: inventoryUpgradeSprite
 };
 
 // =================================================================
@@ -105,7 +109,8 @@ let gameState = {
     illusions: [],
     traps: [],
     largeBalls: [],
-    hardWalls: []
+    hardWalls: [],
+    portals: []
 };
 const movement = {
     up: false,
@@ -216,7 +221,7 @@ window.addEventListener('keydown', function(event) {
 
     switch (key) {
         case '1':
-            if (me && me.role === 'neutral') {
+            if (me && (me.role === 'neutral' || (me.role === 'human' && me.inventorySlots > 1))) {
                 socket.emit('playerAction', {
                     type: 'select_slot',
                     slot: 0
@@ -224,7 +229,7 @@ window.addEventListener('keydown', function(event) {
             }
             break;
         case '2':
-            if (me && me.role === 'neutral') {
+            if (me && me.role === 'human' && me.inventorySlots > 1) {
                 socket.emit('playerAction', {
                     type: 'select_slot',
                     slot: 1
@@ -248,17 +253,24 @@ window.addEventListener('keydown', function(event) {
             movement.right = true;
             break;
         case 'e':
-            socket.emit('playerAction', {
-                type: 'interact'
-            });
+            const selectedItem = me && me.inventory && me.inventory[me.selectedSlot];
+            if (selectedItem && selectedItem.id === 'portals') {
+                socket.emit('playerAction', {
+                    type: 'place_portal'
+                });
+            } else if (selectedItem && selectedItem.id === 'antidote') {
+                socket.emit('playerAction', {
+                    type: 'use_antidote'
+                });
+            } else {
+                socket.emit('playerAction', {
+                    type: 'interact'
+                });
+            }
             break;
         case 'c':
             if (me) {
-                if (me.inventory && me.inventory.id === 'antidote') {
-                    socket.emit('playerAction', {
-                        type: 'use_antidote'
-                    });
-                } else if (me.role === 'zombie') {
+                if (me.role === 'zombie') {
                     socket.emit('playerAction', {
                         type: 'zombie_item'
                     });
@@ -400,8 +412,8 @@ canvas.addEventListener('mousedown', function(event) {
                 } = getItemsLayout();
                 for (const btn of buttons) {
                     const canAfford = me.coins >= btn.price;
-                    let alreadyOwned = me.inventory && me.inventory.id === btn.id;
-                    let inventoryFull = me.inventory !== null;
+                    const alreadyOwned = me.inventory && me.inventory.some(i => i && i.id === btn.id);
+                    const inventoryFull = me.inventory.filter(i => i).length >= me.inventorySlots;
 
                     if (isClickInside(mouse, btn.rect) && canAfford && !alreadyOwned && !inventoryFull) {
                         socket.emit('buyItem', btn.id);
@@ -415,12 +427,24 @@ canvas.addEventListener('mousedown', function(event) {
                     buttons
                 } = getRareItemsLayout();
                 for (const btn of buttons) {
-                    const hasCard = me.inventory && me.inventory.id === 'card';
+                    const hasCard = me.inventory && me.inventory.some(i => i && i.id === 'card');
                     const canAfford = me.coins >= btn.price;
-                    if (isClickInside(mouse, btn.rect) && canAfford && hasCard) {
-                        socket.emit('buyRareItem', btn.id);
-                        isMenuOpen = false;
-                        return;
+                    const alreadyUpgraded = me.inventorySlots > 1;
+
+                    if (btn.id === 'inventoryUpgrade') {
+                        if (isClickInside(mouse, btn.rect) && canAfford && hasCard && !alreadyUpgraded) {
+                            socket.emit('buyRareItem', btn.id);
+                            isMenuOpen = false;
+                            return;
+                        }
+                    } else {
+                        const inventoryFull = me.inventory.filter(i => i).length >= me.inventorySlots;
+                        const alreadyOwned = me.inventory && me.inventory.some(i => i && i.id === btn.id);
+                        if (isClickInside(mouse, btn.rect) && canAfford && hasCard && !inventoryFull && !alreadyOwned) {
+                            socket.emit('buyRareItem', btn.id);
+                            isMenuOpen = false;
+                            return;
+                        }
                     }
                 }
             }
@@ -450,12 +474,6 @@ canvas.addEventListener('mousedown', function(event) {
         if (me && me.role === 'neutral' && me.neutralAbility === 'troll' && me.inventory && me.selectedSlot !== undefined) {
             const selectedItem = me.inventory[me.selectedSlot];
             if (selectedItem) {
-                if (selectedItem.id === 'grenade') {
-                    socket.emit('playerAction', {
-                        type: 'troll_throw_grenade'
-                    });
-                    return;
-                }
                 if (selectedItem.id === 'cannon') {
                     socket.emit('playerAction', {
                         type: 'troll_fire_cannon'
@@ -464,8 +482,8 @@ canvas.addEventListener('mousedown', function(event) {
                 }
             }
         }
-
-        if (me && me.inventory && me.inventory.id === 'drone') {
+        const selectedItem = me && me.inventory && me.inventory[me.selectedSlot];
+        if (selectedItem && selectedItem.id === 'drone') {
             socket.emit('playerAction', {
                 type: 'drop_grenade'
             });
@@ -580,9 +598,10 @@ function draw() {
     }
 
     const me = gameState.players[myId];
-    const hasGravityGloves = me && me.inventory && me.inventory.id === 'gravityGlove';
+    const hasGravityGloves = me && me.inventory && me.inventory.find(i => i && i.id === 'gravityGlove');
     const unmovableFurnitureIds = ['atm'];
-    const zoomLevel = (me.inventory && me.inventory.id === 'zoom') ? 0.8 : 1.0;
+    const hasZoom = me.inventory && me.inventory.find(i => i && i.id === 'zoom');
+    const zoomLevel = hasZoom ? 0.8 : 1.0;
     const cameraX = (me.x + me.width / 2) - canvas.width / (2 * zoomLevel);
     const cameraY = (me.y + me.height / 2) - canvas.height / (2 * zoomLevel);
 
@@ -615,6 +634,30 @@ function draw() {
     if (gameState.traps) {
         for (const trap of gameState.traps) {
             if (trapSprite.complete) ctx.drawImage(trapSprite, trap.x, trap.y, trap.width, trap.height);
+        }
+    }
+
+    if (gameState.portals) {
+        for (const portal of gameState.portals) {
+            if (portalsSprite.complete) {
+                ctx.save();
+                ctx.translate(portal.x + portal.width / 2, portal.y + portal.height / 2);
+                ctx.globalAlpha = 0.8 + Math.sin(Date.now() / 300) * 0.2;
+                ctx.drawImage(portalsSprite, -portal.width / 2, -portal.height / 2, portal.width, portal.height);
+                ctx.restore();
+            }
+        }
+    }
+
+    if (gameState.largeBalls) {
+        for (const ball of gameState.largeBalls) {
+            if (largeBallSprite.complete) {
+                ctx.save();
+                ctx.translate(ball.x, ball.y);
+                ctx.rotate(ball.rotation);
+                ctx.drawImage(largeBallSprite, -ball.radius, -ball.radius, ball.radius * 2, ball.radius * 2);
+                ctx.restore();
+            }
         }
     }
 
@@ -759,7 +802,7 @@ function draw() {
             ctx.rotate(player.rotation);
         }
 
-        if (player.inventory && player.inventory.id === 'skateboard') {
+        if (player.inventory && player.inventory.some(i => i && i.id === 'skateboard')) {
             const skate = gameState.skateboard;
             ctx.drawImage(skateboardSprite, -skate.width / 2, -skate.height / 2, skate.width, skate.height);
         }
@@ -772,12 +815,7 @@ function draw() {
 
         if (player.role === 'neutral' && player.neutralAbility === 'troll' && player.selectedSlot !== undefined && player.inventory && player.inventory[player.selectedSlot]) {
             const item = player.inventory[player.selectedSlot];
-            if (item.id === 'grenade' && grenadeSprite.complete) {
-                const itemWidth = 40;
-                const itemHeight = 40;
-                const itemDistance = player.width / 2;
-                ctx.drawImage(grenadeSprite, itemDistance, -itemHeight / 2, itemWidth, itemHeight);
-            } else if (item.id === 'cannon' && cannonSprite.complete) {
+            if (item.id === 'cannon' && cannonSprite.complete) {
                 const itemWidth = 80;
                 const itemHeight = 50;
                 const itemDistance = player.width / 2;
@@ -797,7 +835,8 @@ function draw() {
             }
         }
 
-        if (player.inventory && player.inventory.id === 'Drum' && drumSprite.complete) {
+        const drumItem = player.inventory ? player.inventory.find(i => i && i.id === 'Drum') : null;
+        if (drumItem && drumSprite.complete) {
             const itemWidth = 60;
             const itemHeight = 30;
             const itemDistance = player.width / 2;
@@ -853,18 +892,6 @@ function draw() {
     if (gameState.grenades) {
         for (const grenade of gameState.grenades) {
             ctx.drawImage(grenadeSprite, grenade.x - 10, grenade.y - 10, 20, 20);
-        }
-    }
-
-    if (gameState.largeBalls) {
-        for (const ball of gameState.largeBalls) {
-            if (largeBallSprite.complete) {
-                ctx.save();
-                ctx.translate(ball.x, ball.y);
-                ctx.rotate(ball.rotation);
-                ctx.drawImage(largeBallSprite, -ball.radius, -ball.radius, ball.radius * 2, ball.radius * 2);
-                ctx.restore();
-            }
         }
     }
 
@@ -939,6 +966,7 @@ function drawHowToPlayTab() {
         ['W, A, S, D / Arrow Keys', 'Move your character.'],
         ['Mouse', 'Aim your character or abilities.'],
         ['Left Click', 'Use primary action (shoot, punch, etc).'],
+        ['1, 2', 'Select inventory slot.'],
         ['B', 'Open the Shop menu.'],
         ['C', 'Use ability / Consume item.'],
         ['E', 'Interact with objects or pick up items.'],
@@ -1056,11 +1084,12 @@ function drawHudText(me) {
             }
         } else if (me.activeAbility === 'archer') {
             ctx.fillText(`AMMO: ${me.arrowAmmo}`, canvas.width - 30, yPos);
-        } else if (me.inventory && me.inventory.id === 'drone' && gameState.drones[me.id]) {
+        } else if (me.inventory && me.inventory.some(i => i && i.id === 'drone') && gameState.drones[me.id]) {
             ctx.fillText(`GRENADES: ${gameState.drones[me.id].ammo}`, canvas.width - 30, yPos);
-        } else if (me.inventory && me.inventory.id === 'gravityGlove') {
+        } else if (me.inventory && me.inventory.some(i => i && i.id === 'gravityGlove')) {
+            const glove = me.inventory.find(i => i.id === 'gravityGlove');
             ctx.fillStyle = 'white';
-            const uses = (typeof me.inventory.uses === 'number') ? me.inventory.uses : 'N/A';
+            const uses = (glove && typeof glove.uses === 'number') ? glove.uses : 'N/A';
             ctx.fillText(`GLOVE USES: ${uses}`, canvas.width - 30, yPos);
         } else if (me.activeAbility === 'engineer') {
             if (Date.now() < (me.engineerCooldownUntil || 0)) {
@@ -1122,14 +1151,14 @@ function drawHudText(me) {
 
 function drawInventory() {
     const me = gameState.players[myId];
-    if (!me || me.role === 'zombie') return;
+    if (!me || me.role === 'zombie' || !me.inventory) return;
 
     if (me.role === 'neutral') {
-        if (me.neutralAbility !== 'troll' || !me.inventory) return;
+        if (me.neutralAbility !== 'troll') return;
 
         const slotSize = 80;
         const gap = 15;
-        const numSlots = 2;
+        const numSlots = 1;
         const totalWidth = (numSlots * slotSize) + ((numSlots - 1) * gap);
         const startX = canvas.width / 2 - totalWidth / 2;
         const slotY = canvas.height - slotSize - 20;
@@ -1176,40 +1205,54 @@ function drawInventory() {
             ctx.fillText(i + 1, slotX + 8, slotY + 20);
         }
     } else if (me.role === 'human') {
+        const numSlots = me.inventorySlots || 1;
         const slotSize = 80;
-        const slotX = canvas.width / 2 - slotSize / 2;
+        const gap = 15;
+        const totalWidth = (numSlots * slotSize) + ((numSlots - 1) * gap);
+        const startX = canvas.width / 2 - totalWidth / 2;
         const slotY = canvas.height - slotSize - 20;
 
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.roundRect(slotX, slotY, slotSize, slotSize, [10]);
-        ctx.fill();
-        ctx.stroke();
+        for (let i = 0; i < numSlots; i++) {
+            const slotX = startX + i * (slotSize + gap);
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+            ctx.strokeStyle = (me.selectedSlot === i) ? '#f1c40f' : 'rgba(255, 255, 255, 0.5)';
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.roundRect(slotX, slotY, slotSize, slotSize, [10]);
+            ctx.fill();
+            ctx.stroke();
 
-        if (me.inventory) {
-            const sprite = itemSprites[me.inventory.id];
-            if (sprite && sprite.complete) {
-                if (me.inventory.id === 'invisibilityCloak' && me.inventory.active) {
-                    ctx.save();
-                    ctx.globalAlpha = 0.5 + Math.sin(Date.now() / 200) * 0.2;
-                }
-                const itemAspectRatio = sprite.width / sprite.height;
-                let drawWidth = slotSize * 0.8;
-                let drawHeight = drawWidth / itemAspectRatio;
-                if (drawHeight > slotSize * 0.8) {
-                    drawHeight = slotSize * 0.8;
-                    drawWidth = drawHeight * itemAspectRatio;
-                }
-                const drawX = slotX + (slotSize - drawWidth) / 2;
-                const drawY = slotY + (slotSize - drawHeight) / 2;
-                ctx.drawImage(sprite, drawX, drawY, drawWidth, drawHeight);
+            const item = me.inventory[i];
+            if (item) {
+                const sprite = itemSprites[item.id];
+                if (sprite && sprite.complete) {
+                    let isActiveCloak = item.id === 'invisibilityCloak' && item.active;
+                    if (isActiveCloak) {
+                        ctx.save();
+                        ctx.globalAlpha = 0.5 + Math.sin(Date.now() / 200) * 0.2;
+                    }
 
-                if (me.inventory.id === 'invisibilityCloak' && me.inventory.active) {
-                    ctx.restore();
+                    const itemAspectRatio = sprite.width / sprite.height;
+                    let drawWidth = slotSize * 0.8;
+                    let drawHeight = drawWidth / itemAspectRatio;
+                    if (drawHeight > slotSize * 0.8) {
+                        drawHeight = slotSize * 0.8;
+                        drawWidth = drawHeight * itemAspectRatio;
+                    }
+                    const drawX = slotX + (slotSize - drawWidth) / 2;
+                    const drawY = slotY + (slotSize - drawHeight) / 2;
+                    ctx.drawImage(sprite, drawX, drawY, drawWidth, drawHeight);
+
+                    if (isActiveCloak) {
+                        ctx.restore();
+                    }
                 }
             }
+
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+            ctx.font = '16px Arial';
+            ctx.textAlign = 'left';
+            ctx.fillText(i + 1, slotX + 8, slotY + 20);
         }
     }
 }
@@ -1416,7 +1459,7 @@ function drawHumanMenu(me) {
         ctx.font = '50px Arial';
         ctx.textAlign = 'center';
         ctx.fillText(isRare ? 'RARE ITEMS - ATM' : 'ITEMS SHOP', canvas.width / 2, menuY + 140);
-        const hasCard = me.inventory && me.inventory.id === 'card';
+        const hasCard = me.inventory && me.inventory.some(i => i && i.id === 'card');
         if (isRare && !hasCard) {
             ctx.font = '30px Arial';
             ctx.fillStyle = 'orange';
@@ -1427,9 +1470,21 @@ function drawHumanMenu(me) {
         } = isRare ? getRareItemsLayout() : getItemsLayout();
         buttons.forEach(btn => {
             const canAfford = me.coins >= btn.price;
-            const alreadyOwned = me.inventory && me.inventory.id === btn.id;
-            const inventoryFull = me.inventory !== null && !alreadyOwned;
-            const canBuy = isRare ? (canAfford && hasCard && !alreadyOwned) : (canAfford && !alreadyOwned && !inventoryFull);
+            const alreadyOwned = me.inventory && me.inventory.some(i => i && i.id === btn.id);
+            const inventoryFull = me.inventory.filter(i => i).length >= me.inventorySlots;
+            const alreadyUpgraded = me.inventorySlots > 1;
+
+            let canBuy = false;
+            if (isRare) {
+                if (btn.id === 'inventoryUpgrade') {
+                    canBuy = canAfford && hasCard && !alreadyUpgraded;
+                } else {
+                    canBuy = canAfford && hasCard && !alreadyOwned && !inventoryFull;
+                }
+            } else {
+                canBuy = canAfford && !alreadyOwned && !inventoryFull;
+            }
+
             ctx.fillStyle = canBuy ? '#282828' : '#1a1a1a';
             ctx.fillRect(btn.rect.x, btn.rect.y, btn.rect.width, btn.rect.height);
             ctx.strokeStyle = canBuy ? 'white' : '#666';
@@ -1458,7 +1513,7 @@ function drawHumanMenu(me) {
             const costText = `🪙 ${btn.price}`;
             ctx.textAlign = 'right';
             ctx.fillText(costText, btn.rect.x + btn.rect.width - 20, btn.rect.y + btn.rect.height - 20);
-            if (alreadyOwned) {
+            if (alreadyOwned || (btn.id === 'inventoryUpgrade' && alreadyUpgraded)) {
                 ctx.fillStyle = 'rgba(0, 255, 0, 0.5)';
                 ctx.textAlign = 'center';
                 ctx.font = 'bold 20px Arial';
@@ -1584,7 +1639,7 @@ function getNeutralAbilitiesLayout() {
     const abilities = [{
         text: 'TROLL',
         ability: 'troll',
-        description: 'Wreak havoc. Starts with 5 grenades.'
+        description: 'Wreak havoc. Starts with a powerful cannon.'
     }];
     const menuWidth = 1500,
         menuHeight = 900;
@@ -1648,12 +1703,6 @@ function getItemsLayout() {
         price: 100,
         sprite: drumSprite
     }, {
-        id: 'gravityGlove',
-        text: 'GRAVITY GLOVE',
-        description: 'Pick up (E) and drop (G) objects.',
-        price: 100,
-        sprite: gravityGloveSprite
-    }, {
         id: 'antidote',
         text: 'ANTIDOTE',
         description: 'Gives a chance to resist infection.',
@@ -1691,6 +1740,12 @@ function getItemsLayout() {
 
 function getRareItemsLayout() {
     const rareItems = [{
+        id: 'inventoryUpgrade',
+        text: 'INVENTORY UPGRADE',
+        description: 'Permanently unlocks a second inventory slot.',
+        price: 500,
+        sprite: inventoryUpgradeSprite
+    }, {
         id: 'skateboard',
         text: 'SKATEBOARD',
         description: 'Move faster',
@@ -1708,6 +1763,18 @@ function getRareItemsLayout() {
         description: 'Become invisible',
         price: 200,
         sprite: invisibilityCloakSprite
+    }, {
+        id: 'gravityGlove',
+        text: 'GRAVITY GLOVE',
+        description: 'Pick up (E) and drop (G) objects.',
+        price: 100,
+        sprite: gravityGloveSprite
+    }, {
+        id: 'portals',
+        text: 'PORTALS',
+        description: 'Place 2 portals for instant travel.',
+        price: 100,
+        sprite: portalsSprite
     }, ];
     const menuWidth = 1500,
         menuHeight = 900;
@@ -1738,7 +1805,8 @@ function isClickInside(pos, rect) {
 
 function getPlayerAngle(player) {
     if (!player) return 0;
-    const zoomLevel = (player.inventory && player.inventory.id === 'zoom') ? 0.8 : 1.0;
+    const hasZoom = player.inventory && player.inventory.find(i => i && i.id === 'zoom');
+    const zoomLevel = hasZoom ? 0.8 : 1.0;
     const cx = canvas.width / (2 * zoomLevel);
     const cy = canvas.height / (2 * zoomLevel);
     const dx = mouse.x / zoomLevel - cx;
@@ -1809,7 +1877,8 @@ function gameLoop() {
     if (myId && gameState.players[myId] && !document.getElementById('nickname-container')) {
         const me = gameState.players[myId];
         const rot = getPlayerAngle(me);
-        const zoomLevel = (me.inventory && me.inventory.id === 'zoom') ? 0.8 : 1.0;
+        const hasZoom = me.inventory && me.inventory.find(i => i && i.id === 'zoom');
+        const zoomLevel = hasZoom ? 0.8 : 1.0;
         const cameraX = (me.x + me.width / 2) - canvas.width / (2 * zoomLevel);
         const cameraY = (me.y + me.height / 2) - canvas.height / (2 * zoomLevel);
         const worldMouse = {

@@ -11,63 +11,63 @@ const PORT = process.env.PORT || 3000;
 const TICK_RATE = 1000 / 60;
 
 // --- Constantes do Mundo e Regras Gerais ---
-const WORLD_WIDTH = 6000; // Largura total do mapa do jogo em pixels. Define os limites horizontais.
-const WORLD_HEIGHT = 2000; // Altura total do mapa do jogo em pixels. Define os limites verticais.
-const ROUND_DURATION = 120; // Duração de uma rodada em segundos. Quando o tempo acaba, os humanos vencem.
-const UNMOVABLE_FURNITURE = ['atm']; // Uma lista de IDs de objetos que não podem ser movidos pelos jogadores.
+const WORLD_WIDTH = 6000;
+const WORLD_HEIGHT = 2000;
+const ROUND_DURATION = 120;
+const UNMOVABLE_FURNITURE = ['atm'];
 
 // --- Constantes do Jogador (Humano) ---
-const INITIAL_PLAYER_SIZE = 40; // Tamanho (largura) inicial de um jogador em pixels ao entrar no jogo.
-const INITIAL_PLAYER_SPEED = 2; // Velocidade base com que um humano começa a rodada.
-const MAX_PLAYER_SPEED = 4; // A velocidade máxima que um humano pode atingir através do sistema de crescimento.
-const GROWTH_AMOUNT = 0.2; // A quantidade de pixels que o tamanho de um humano aumenta a cada segundo.
-const SPEED_PER_PIXEL_OF_GROWTH = 0.07; // Fator que converte o crescimento em tamanho para aumento de velocidade.
-const PLAYER_ACCELERATION = 1.2; // Quão rápido um jogador atinge sua velocidade máxima (sensação de inércia).
-const PLAYER_FRICTION = 0.90; // Quão rápido um jogador para após soltar as teclas de movimento (0.9 = 10% de perda de vel/tick).
+const INITIAL_PLAYER_SIZE = 40;
+const INITIAL_PLAYER_SPEED = 2;
+const MAX_PLAYER_SPEED = 4;
+const GROWTH_AMOUNT = 0.2;
+const SPEED_PER_PIXEL_OF_GROWTH = 0.07;
+const PLAYER_ACCELERATION = 1.2;
+const PLAYER_FRICTION = 0.90;
 
 // --- Constantes do Zumbi ---
-const ZOMBIE_SPEED_BOOST = 1.30; // Multiplicador de velocidade aplicado a um jogador quando ele se torna zumbi (30% mais rápido).
-const ZOMBIE_PUSH_MODIFIER = 0.3; // Modificador da força com que um zumbi empurra objetos (40% da força de um humano).
-const ZOMBIE_SPEED_DECAY_PER_SECOND = 0.01; // Quanto de velocidade um zumbi perde por segundo para evitar que fiquem rápidos demais.
-const ZOMBIE_MIN_SPEED = 2; // A velocidade mínima que um zumbi pode ter, mesmo após o decaimento.
+const ZOMBIE_SPEED_BOOST = 1.30;
+const ZOMBIE_PUSH_MODIFIER = 0.3;
+const ZOMBIE_SPEED_DECAY_PER_SECOND = 0.01;
+const ZOMBIE_MIN_SPEED = 2;
 
 // --- Constantes de Habilidades e Itens ---
 // Habilidade: Atleta (Sprint)
-const SPRINT_DURATION = 10000; // Duração do efeito de corrida em milissegundos (10 segundos).
-const SPRINT_COOLDOWN = 30000; // Tempo de recarga da habilidade de corrida em milissegundos (45 segundos).
+const SPRINT_DURATION = 10000;
+const SPRINT_COOLDOWN = 30000;
 
 // Habilidade: Arqueiro (Archer)
-const ARROW_SPEED = 7; // Velocidade com que a flecha viaja em pixels por tick.
-const ARROW_KNOCKBACK_IMPULSE = 10; // A força do empurrão que a flecha causa ao atingir um alvo.
-const ARROW_LIFESPAN_AFTER_HIT = 1000; // Tempo que a flecha fica visível no alvo após o impacto, em milissegundos (1 segundo).
+const ARROW_SPEED = 7;
+const ARROW_KNOCKBACK_IMPULSE = 10;
+const ARROW_LIFESPAN_AFTER_HIT = 1000;
 
 // Habilidade: Espião (Spy)
-const SPY_DURATION = 15000; // Duração do disfarce do espião em milissegundos (15 segundos).
-const SPY_COOLDOWN = 30000; // Tempo de recarga da habilidade de disfarce em milissegundos (30 segundos).
+const SPY_DURATION = 15000;
+const SPY_COOLDOWN = 30000;
 
 // Habilidade: Ilusionista (Illusionist)
-const ILLUSIONIST_COOLDOWN = 30000; // Tempo de recarga para criar uma nova ilusão em milissegundos (30 segundos).
-const ILLUSION_LIFESPAN = 10000; // Quanto tempo a ilusão permanece no mapa em milissegundos (10 segundos).
-const ILLUSION_SPEED = 2.5; // Velocidade de movimento da ilusão em pixels por tick.
+const ILLUSIONIST_COOLDOWN = 30000;
+const ILLUSION_LIFESPAN = 10000;
+const ILLUSION_SPEED = 2.5;
 
 // Habilidade: Borboleta (Butterfly)
-const BUTTERFLY_DURATION = 10000; // Duração do voo da borboleta em milissegundos (10 segundos).
-const BUTTERFLY_SPEED = 5; // Multiplicador aplicado à velocidade do jogador durante o voo.
+const BUTTERFLY_DURATION = 10000;
+const BUTTERFLY_SPEED = 5;
 
 // Item: Manto da Invisibilidade
-const INVISIBILITY_CLOAK_BREAK_DISTANCE = 300; // Distância (em pixels) que um zumbi precisa chegar perto para quebrar a invisibilidade.
+const INVISIBILITY_CLOAK_BREAK_DISTANCE = 300;
 
 // Item: Skate
-const SKATEBOARD_SPEED_BOOST = 5; // Velocidade de movimento fixa ao usar o skate.
-const SKATEBOARD_WIDTH = 90; // Largura do objeto skate em pixels.
-const SKATEBOARD_HEIGHT = 35; // Altura do objeto skate em pixels.
+const SKATEBOARD_SPEED_BOOST = 5;
+const SKATEBOARD_WIDTH = 90;
+const SKATEBOARD_HEIGHT = 35;
 
 // Item: Drone e Granada
-const DRONE_FOLLOW_FACTOR = 0.05; // Suavidade com que o drone segue o mouse (valores menores = mais suave).
-const DRONE_MAX_AMMO = 10; // Quantidade máxima de granadas que um drone pode carregar.
-const GRENADE_FUSE_TIME = 1500; // Tempo em milissegundos para a granada explodir após ser lançada (2 segundos).
-const GRENADE_RADIUS = 300; // O raio da explosão da granada em pixels.
-const GRENADE_KNOCKBACK_IMPULSE = 40; // A força máxima do empurrão da explosão da granada.
+const DRONE_FOLLOW_FACTOR = 0.05;
+const DRONE_MAX_AMMO = 10;
+const GRENADE_FUSE_TIME = 1500;
+const GRENADE_RADIUS = 300;
+const GRENADE_KNOCKBACK_IMPULSE = 40;
 
 // Item: Canhão (Troll)
 const LARGE_BALL_SPEED = 2;
@@ -78,25 +78,29 @@ const CANNON_COOLDOWN = 5000; // 5 segundos
 const CANNON_FRONT_OFFSET = 200;
 
 // Item: Armadilha (Trap)
-const TRAP_DURATION = 1000; // Duração que um jogador fica preso na armadilha em milissegundos (1 segundo).
-const TRAP_SIZE = 50; // O tamanho (largura e altura) da hitbox da armadilha em pixels.
+const TRAP_DURATION = 1000;
+const TRAP_SIZE = 50;
+
+// Item: Portais
+const PORTAL_SIZE = 60;
+const PORTAL_COOLDOWN = 1000;
 
 // Interações Gerais de Itens
-const DROPPED_ITEM_SIZE = 30; // Tamanho padrão (largura e altura) de um item quando está no chão.
-const PICKUP_DISTANCE = 150; // A distância máxima em pixels que um jogador pode estar para pegar um item do chão.
-const DUCT_TRAVEL_TIME = 1000 / 20; // Tempo de viagem dentro de um duto em milissegundos (50 ms).
+const DROPPED_ITEM_SIZE = 30;
+const PICKUP_DISTANCE = 150;
+const DUCT_TRAVEL_TIME = 1000 / 20;
 
 // --- Constantes do Motor de Física (Objetos Móveis) ---
-const BOX_FRICTION = 0.92; // Fricção dos objetos com o "chão", fazendo-os parar de deslizar (perdem 6% da vel/tick).
-const BOX_PUSH_FORCE = 1; // A força base que um jogador aplica ao empurrar continuamente um objeto.
-const BOX_COLLISION_DAMPING = 0.1; // Coeficiente de restituição (elasticidade) das colisões. 0 = sem pulo, 1 = pulo perfeito.
-const BOX_SLIDE_FRICTION = 0.01; // Fricção entre dois objetos que estão deslizando um contra o outro.
-const ANGULAR_FRICTION = 0.02; // Fricção que faz um objeto que está girando parar de girar.
-const TORQUE_FACTOR = 0.00009; // Fator que determina o quão fácil é fazer um objeto girar ao empurrá-lo fora do centro.
-const FORCE_DRUM_MULTIPLIER = 2; // Multiplicador de força para o empurrão contínuo do item "coxa".
-const FORCE_DRUM_COLLISION_FORCE = 1; // Força de impacto inicial aplicada pela "coxa" ao tocar em um objeto.
-const WALL_PUSH_OUT_FORCE = 0.9; // Força com que a parede empurra um objeto para fora (usado em lógicas de colisão "suaves").
-const SLEEP_THRESHOLD = 1; // Limiar de velocidade. Abaixo disso, o servidor para de calcular a física do objeto para otimização.
+const BOX_FRICTION = 0.92;
+const BOX_PUSH_FORCE = 5;
+const BOX_COLLISION_DAMPING = 0.1;
+const BOX_SLIDE_FRICTION = 0.1;
+const ANGULAR_FRICTION = 0.02;
+const TORQUE_FACTOR = 0.0009;
+const FORCE_DRUM_MULTIPLIER = 2;
+const FORCE_DRUM_COLLISION_FORCE = 7;
+const WALL_PUSH_OUT_FORCE = 1.5;
+const SLEEP_THRESHOLD = 1;
 
 const ABILITY_COSTS = {
     athlete: 150,
@@ -128,6 +132,7 @@ function initializeGame() {
         illusions: [],
         traps: [],
         largeBalls: [],
+        portals: [],
         obstacles: [],
         takenAbilities: [],
         abilityCosts: ABILITY_COSTS,
@@ -168,6 +173,7 @@ function initializeGame() {
             vy: 0,
             rotation: 0,
             angularVelocity: 0,
+            isStatic: true, // Make ATM static
         }, {
             id: 'small_bed',
             uniqueId: nextUniqueObjectId++,
@@ -732,7 +738,9 @@ function createNewPlayer(socket) {
         zombieSpeed: null,
         zombieWidth: null,
         zombieHeight: null,
-        inventory: null,
+        inventory: [],
+        inventorySlots: 1,
+        hasInventoryUpgrade: false,
         illusionistAvailable: true,
         illusionistPassiveAvailable: true,
         butterflyUsed: false,
@@ -744,6 +752,8 @@ function createNewPlayer(socket) {
         isTrapped: false,
         trappedUntil: 0,
         carryingObject: null,
+        portalCooldownUntil: 0,
+        hasAntidoteEffect: false,
         knockbackVx: 0,
         knockbackVy: 0,
         input: {
@@ -769,56 +779,63 @@ function createNewPlayer(socket) {
 function dropHeldItem(player) {
     if (!player || !player.inventory) return;
 
-    if (Array.isArray(player.inventory)) { // Handle neutral player inventory
+    // Troll logic
+    if (player.role === 'neutral') {
         player.inventory = null;
         return;
     }
 
-    const itemToDrop = { ...player.inventory
-    };
-    player.inventory = null;
+    // Human logic (now with array inventory)
+    if (!Array.isArray(player.inventory) || player.inventory.length === 0) return;
 
-    if (itemToDrop.id === 'gravityGlove') {
-        return;
-    }
+    // Drop all items on infection/disconnect
+    while (player.inventory.length > 0) {
+        const itemToDrop = player.inventory.pop();
+        if (!itemToDrop) continue;
 
-    let dropData = {
-        id: itemToDrop.id,
-        x: player.x,
-        y: player.y,
-        width: DROPPED_ITEM_SIZE,
-        height: DROPPED_ITEM_SIZE
-    };
-    switch (itemToDrop.id) {
-        case 'skateboard':
-            const skate = gameState.skateboard;
-            skate.spawned = true;
-            skate.ownerId = null;
-            skate.x = player.x;
-            skate.y = player.y;
-            return;
-        case 'drone':
-            delete gameState.drones[player.id];
-            dropData.ammo = itemToDrop.ammo || DRONE_MAX_AMMO;
-            break;
-        case 'invisibilityCloak':
-            dropData.active = false;
-            break;
-        case 'card':
-            dropData.width = 37;
-            dropData.height = 25;
-            break;
-        case 'Drum':
-            dropData.width = 60;
-            dropData.height = 30;
-            break;
+        if (itemToDrop.id === 'gravityGlove') {
+            continue; // Gravity glove is not dropped
+        }
+
+        let dropData = {
+            id: itemToDrop.id,
+            x: player.x,
+            y: player.y,
+            width: DROPPED_ITEM_SIZE,
+            height: DROPPED_ITEM_SIZE
+        };
+        switch (itemToDrop.id) {
+            case 'skateboard':
+                const skate = gameState.skateboard;
+                skate.spawned = true;
+                skate.ownerId = null;
+                skate.x = player.x;
+                skate.y = player.y;
+                // Skateboard is an exception, doesn't become a groundItem
+                continue;
+            case 'drone':
+                delete gameState.drones[player.id];
+                dropData.ammo = itemToDrop.ammo || DRONE_MAX_AMMO;
+                break;
+            case 'invisibilityCloak':
+                dropData.active = false;
+                break;
+            case 'card':
+                dropData.width = 37;
+                dropData.height = 25;
+                break;
+            case 'Drum':
+                dropData.width = 60;
+                dropData.height = 30;
+                break;
+        }
+        gameState.groundItems.push(dropData);
     }
-    gameState.groundItems.push(dropData);
 }
 
 function updateGameState() {
     const now = Date.now();
-    const allCollidables = [...gameState.box, ...gameState.furniture];
+    const allCollidables = [...gameState.box, ...gameState.furniture.filter(f => !f.isStatic)];
     const allWalls = [...gameState.house.walls, ...gameState.garage.walls, ...gameState.obstacles, ...(gameState.hardWalls || [])];
 
     gameState.illusions = gameState.illusions.filter(illusion => {
@@ -917,6 +934,34 @@ function updateGameState() {
                 break;
             }
         }
+        const dynamicObstacles = [...gameState.box, ...gameState.furniture];
+        for (const obj of dynamicObstacles) {
+            const mtv = checkCollisionSAT_Circle_OBB(ballCircle, obj);
+            if (mtv) {
+                ball.x -= mtv.x;
+                ball.y -= mtv.y;
+
+                const mtvLength = Math.sqrt(mtv.x * mtv.x + mtv.y * mtv.y);
+                if (mtvLength > 0) {
+                    const normalX = mtv.x / mtvLength;
+                    const normalY = mtv.y / mtvLength;
+                    const velDotNormal = ball.vx * normalX + ball.vy * normalY;
+                    ball.vx -= 2 * velDotNormal * normalX;
+                    ball.vy -= 2 * velDotNormal * normalY;
+                    bounced = true;
+                }
+
+                if (!obj.isStatic) {
+                    const mass = getMass(obj);
+                    const impulseMagnitude = (LARGE_BALL_KNOCKBACK / mass) * 0.5;
+                    const ballSpeed = Math.sqrt(ball.vx * ball.vx + ball.vy * ball.vy) || 1;
+                    obj.vx += (ball.vx / ballSpeed) * impulseMagnitude;
+                    obj.vy += (ball.vy / ballSpeed) * impulseMagnitude;
+                }
+                break;
+            }
+        }
+
         if (bounced) {
             ball.wallBounces++;
         }
@@ -939,7 +984,7 @@ function updateGameState() {
 
     for (const id in gameState.players) {
         const player = gameState.players[id];
-        if (player.inventory && player.inventory.id === 'Drum') {
+        if (player.inventory && player.inventory.some(i => i.id === 'Drum')) {
             const drumRadius = 10;
             const localX = player.width / 2 + 40;
             const localY = 0;
@@ -1104,7 +1149,7 @@ function updateGameState() {
                     const distance = Math.sqrt(dx * dx + dy * dy);
                     if (distance < INVISIBILITY_CLOAK_BREAK_DISTANCE) {
                         player.isInvisible = false;
-                        player.inventory = null;
+                        player.inventory = player.inventory.filter(i => i.id !== 'invisibilityCloak');
                         io.emit('newMessage', {
                             name: 'Server',
                             text: `${player.name}'s cloak was broken!`
@@ -1154,7 +1199,7 @@ function updateGameState() {
             cy: player.y + player.height / 2,
             radius: player.width * 0.2
         };
-        if (player.inventory && player.inventory.id === 'skateboard') {
+        if (player.inventory && player.inventory.some(i => i.id === 'skateboard')) {
             const originalX = player.x;
             const originalY = player.y;
             const skateSpeed = SKATEBOARD_SPEED_BOOST;
@@ -1242,12 +1287,18 @@ function updateGameState() {
             height: player.physicalHitbox.radius * 2,
             rotation: 0
         };
-        for (const item of allCollidables) {
+        const allDynamicCollidables = [...gameState.box, ...gameState.furniture];
+        for (const item of allDynamicCollidables) {
             const mtv = checkCollisionSAT(playerPoly, item);
             if (mtv) {
+                if (item.isStatic) {
+                    player.x -= mtv.x;
+                    player.y -= mtv.y;
+                    continue;
+                }
                 totalMtvX -= mtv.x;
                 totalMtvY -= mtv.y;
-                if (player.inventory && player.inventory.id === 'skateboard') {
+                if (player.inventory && player.inventory.some(i => i.id === 'skateboard')) {
                     continue;
                 }
                 const isPushing = player.input.movement.up || player.input.movement.down || player.input.movement.left || player.input.movement.right;
@@ -1272,7 +1323,7 @@ function updateGameState() {
                         pushDirectionY /= magnitude;
                     }
                     let pushMultiplier = 1;
-                    if (player.inventory && player.inventory.id === 'Drum') {
+                    if (player.inventory && player.inventory.some(i => i.id === 'Drum')) {
                         pushMultiplier = FORCE_DRUM_MULTIPLIER;
                     }
                     if (player.role === 'zombie') {
@@ -1365,6 +1416,40 @@ function updateGameState() {
             gameState.traps.splice(i, 1);
         }
     }
+
+    const portalsByOwner = {};
+    for (const portal of gameState.portals) {
+        if (!portalsByOwner[portal.ownerId]) {
+            portalsByOwner[portal.ownerId] = [];
+        }
+        portalsByOwner[portal.ownerId].push(portal);
+    }
+    for (const ownerId in portalsByOwner) {
+        const ownerPortals = portalsByOwner[ownerId];
+        if (ownerPortals.length === 2) {
+            const [portalA, portalB] = ownerPortals;
+            for (const playerId in gameState.players) {
+                const player = gameState.players[playerId];
+                if ((player.role === 'human' || player.role === 'neutral') && !player.isFlying && !player.isInDuct && Date.now() > (player.portalCooldownUntil || 0)) {
+                    const playerHitbox = {
+                        x: player.x,
+                        y: player.y,
+                        width: player.width,
+                        height: player.height
+                    };
+                    if (isColliding(playerHitbox, portalA)) {
+                        player.x = portalB.x + (portalB.width / 2) - (player.width / 2);
+                        player.y = portalB.y + (portalB.height / 2) - (player.height / 2);
+                        player.portalCooldownUntil = Date.now() + PORTAL_COOLDOWN;
+                    } else if (isColliding(playerHitbox, portalB)) {
+                        player.x = portalA.x + (portalA.width / 2) - (player.width / 2);
+                        player.y = portalA.y + (portalA.height / 2) - (player.height / 2);
+                        player.portalCooldownUntil = Date.now() + PORTAL_COOLDOWN;
+                    }
+                }
+            }
+        }
+    }
     if (gameState.gamePhase === 'running') {
         const players = gameState.players;
         for (const id1 of playerIds) {
@@ -1400,8 +1485,8 @@ function updateGameState() {
                             });
                             continue;
                         }
-                        if (player2.inventory && player2.inventory.id === 'antidote') {
-                            player2.inventory = null;
+                        if (player2.hasAntidoteEffect) {
+                            player2.hasAntidoteEffect = false;
                             if (Math.random() < 0.75) {
                                 io.emit('newMessage', {
                                     name: 'Server',
@@ -1427,7 +1512,7 @@ function updateGameState() {
                         player2.width = humanWidth;
                         player2.height = humanHeight;
                         const speedStolen = player2.speed * 0.25;
-                        player2.speed -= speedStolen;
+                        player2.speed = Math.max(2, player2.speed - speedStolen);
                         player1.speed = Math.min(MAX_PLAYER_SPEED, player1.speed + speedStolen);
                         const coinReward = 10;
                         player1.coins += coinReward;
@@ -1528,9 +1613,6 @@ io.on('connection', (socket) => {
             if (abilityId === 'troll') {
                 player.neutralAbility = 'troll';
                 player.inventory = [{
-                    id: 'grenade',
-                    quantity: 5
-                }, {
                     id: 'cannon',
                     cooldownUntil: 0
                 }];
@@ -1556,7 +1638,7 @@ io.on('connection', (socket) => {
     });
     socket.on('buyItem', (itemId) => {
         const player = gameState.players[socket.id];
-        if (!player || player.inventory) return;
+        if (!player || !Array.isArray(player.inventory) || player.inventory.length >= player.inventorySlots) return;
         let cost;
         let itemData;
         switch (itemId) {
@@ -1564,13 +1646,6 @@ io.on('connection', (socket) => {
                 cost = 100;
                 itemData = {
                     id: 'Drum'
-                };
-                break;
-            case "gravityGlove":
-                cost = 100;
-                itemData = {
-                    id: 'gravityGlove',
-                    uses: 2
                 };
                 break;
             case 'antidote':
@@ -1588,7 +1663,7 @@ io.on('connection', (socket) => {
         }
         if (cost && player.coins >= cost) {
             player.coins -= cost;
-            player.inventory = itemData;
+            player.inventory.push(itemData);
             io.emit('newMessage', {
                 name: 'Server',
                 text: `${player.name} bought ${itemId}!`
@@ -1597,12 +1672,16 @@ io.on('connection', (socket) => {
     });
     socket.on('buyRareItem', (itemId) => {
         const player = gameState.players[socket.id];
-        if (!player || !player.inventory || player.inventory.id !== 'card') {
+        if (!player || !Array.isArray(player.inventory) || !player.inventory.some(i => i.id === 'card')) {
             return;
         }
+
         let cost;
         let itemData;
         switch (itemId) {
+            case 'inventoryUpgrade':
+                cost = 500;
+                break;
             case 'skateboard':
                 cost = 100;
                 itemData = { ...gameState.skateboard,
@@ -1623,10 +1702,32 @@ io.on('connection', (socket) => {
                     active: false
                 };
                 break;
+            case "gravityGlove":
+                cost = 100;
+                itemData = {
+                    id: 'gravityGlove',
+                    uses: 2
+                };
+                break;
+            case 'portals':
+                cost = 100;
+                itemData = {
+                    id: 'portals'
+                };
+                break;
         }
+
         if (cost && player.coins >= cost) {
             player.coins -= cost;
-            player.inventory = itemData;
+            player.inventory = player.inventory.filter(i => i.id !== 'card');
+
+            if (itemId === 'inventoryUpgrade') {
+                player.hasInventoryUpgrade = true;
+                player.inventorySlots = 2;
+            } else {
+                player.inventory.push(itemData);
+            }
+
             if (itemId === 'skateboard') {
                 gameState.skateboard.ownerId = player.id;
                 gameState.skateboard.spawned = false;
@@ -1648,6 +1749,31 @@ io.on('connection', (socket) => {
         const player = gameState.players[socket.id];
         if (!player) return;
         switch (actionData.type) {
+            case 'use_antidote':
+                const antidote = player.inventory.find(i => i.id === 'antidote');
+                if (antidote) {
+                    player.inventory = player.inventory.filter(i => i.id !== 'antidote');
+                    player.hasAntidoteEffect = true;
+                    io.emit('newMessage', {
+                        name: 'Server',
+                        text: `${player.name} has consumed the antidote.`
+                    });
+                }
+                break;
+            case 'place_portal':
+                if (player.inventory.some(i => i.id === 'portals')) {
+                    const myPortals = gameState.portals.filter(p => p.ownerId === player.id);
+                    if (myPortals.length < 2) {
+                        gameState.portals.push({
+                            ownerId: player.id,
+                            x: player.x,
+                            y: player.y,
+                            width: PORTAL_SIZE,
+                            height: PORTAL_SIZE,
+                        });
+                    }
+                }
+                break;
             case 'troll_fire_cannon':
                 if (player.role === 'neutral' && player.neutralAbility === 'troll' && player.inventory && player.selectedSlot !== undefined) {
                     const item = player.inventory[player.selectedSlot];
@@ -1670,27 +1796,10 @@ io.on('connection', (socket) => {
                     }
                 }
                 break;
-            case 'troll_throw_grenade':
-                if (player.role === 'neutral' && player.neutralAbility === 'troll' && player.inventory && player.selectedSlot !== undefined) {
-                    const item = player.inventory[player.selectedSlot];
-                    if (item && item.id === 'grenade' && item.quantity > 0) {
-                        item.quantity--;
-                        if (item.quantity <= 0) {
-                            player.inventory[player.selectedSlot] = null;
-                        }
-                        gameState.grenades.push({
-                            id: nextGrenadeId++,
-                            x: player.input.worldMouse.x,
-                            y: player.input.worldMouse.y,
-                            explodeTime: Date.now() + GRENADE_FUSE_TIME
-                        });
-                    }
-                }
-                break;
             case 'select_slot':
                 if (player.role === 'neutral') {
                     const slotIndex = actionData.slot;
-                    if (slotIndex === 0 || slotIndex === 1) {
+                    if (slotIndex === 0) {
                         player.selectedSlot = slotIndex;
                     }
                 }
@@ -1716,10 +1825,11 @@ io.on('connection', (socket) => {
                 }
                 break;
             case 'drop_grenade':
-                if (player.inventory && player.inventory.id === 'drone' && gameState.drones[player.id] && gameState.drones[player.id].ammo > 0) {
+                if (player.inventory.some(i => i.id === 'drone') && gameState.drones[player.id] && gameState.drones[player.id].ammo > 0) {
                     const drone = gameState.drones[player.id];
                     drone.ammo--;
-                    player.inventory.ammo = drone.ammo;
+                    const droneItem = player.inventory.find(i => i.id === 'drone');
+                    if (droneItem) droneItem.ammo = drone.ammo;
                     gameState.grenades.push({
                         id: nextGrenadeId++,
                         x: drone.x,
@@ -1746,8 +1856,9 @@ io.on('connection', (socket) => {
                 }
                 break;
             case 'ability':
-                if (player.inventory && player.inventory.id === 'invisibilityCloak' && !player.inventory.active) {
-                    player.inventory.active = true;
+                const cloak = player.inventory.find(i => i.id === 'invisibilityCloak');
+                if (cloak && !cloak.active) {
+                    cloak.active = true;
                     player.isInvisible = true;
                     io.emit('newMessage', {
                         name: 'Server',
@@ -1755,6 +1866,7 @@ io.on('connection', (socket) => {
                     });
                     return;
                 }
+
                 if (player.activeAbility === 'illusionist' && player.illusionistAvailable) {
                     player.illusionistAvailable = false;
                     gameState.illusions.push({
@@ -1800,10 +1912,11 @@ io.on('connection', (socket) => {
                 break;
             case 'drop_item':
                 if (player.carryingObject) {
-                    if (player.inventory && player.inventory.id === 'gravityGlove') {
-                        player.inventory.uses--;
-                        if (player.inventory.uses <= 0) {
-                            player.inventory = null;
+                    const glove = player.inventory.find(i => i.id === 'gravityGlove');
+                    if (glove) {
+                        glove.uses--;
+                        if (glove.uses <= 0) {
+                            player.inventory = player.inventory.filter(i => i.id !== 'gravityGlove');
                             io.emit('newMessage', {
                                 name: 'Server',
                                 text: `${player.name}'s Gravity Glove broke!`
@@ -1824,15 +1937,17 @@ io.on('connection', (socket) => {
                     } else {
                         gameState.furniture.push(objectToDrop);
                     }
-                } else if (player.inventory && player.role !== 'neutral') {
-                    if (player.inventory.id === 'invisibilityCloak' && player.inventory.active) {
+                } else if (player.inventory.length > 0 && player.role !== 'neutral') {
+                    if (player.inventory.find(i => i.id === 'invisibilityCloak' && i.active)) {
                         return;
                     }
+                    // This will only drop one item, the last one.
                     dropHeldItem(player);
                 }
                 break;
             case 'interact':
-                if (player.inventory && player.inventory.id === 'gravityGlove' && !player.carryingObject && player.inventory.uses > 0) {
+                const glove = player.inventory.find(i => i.id === 'gravityGlove');
+                if (glove && !player.carryingObject && glove.uses > 0) {
                     let closestObject = null;
                     let minDistance = PICKUP_DISTANCE;
                     let closestIndex = -1;
@@ -1871,15 +1986,15 @@ io.on('connection', (socket) => {
                         return;
                     }
                 }
-                if (!player.inventory && player.role !== 'zombie' && player.role !== 'neutral') {
+                if (player.inventory.length < player.inventorySlots && player.role !== 'zombie' && player.role !== 'neutral') {
                     if (gameState.skateboard && gameState.skateboard.spawned && !gameState.skateboard.ownerId) {
                         const skate = gameState.skateboard;
                         const dx = (player.x + player.width / 2) - (skate.x + skate.width / 2);
                         const dy = (player.y + player.height / 2) - (skate.y + skate.height / 2);
                         const distance = Math.sqrt(dx * dx + dy * dy);
                         if (distance < PICKUP_DISTANCE) {
-                            player.inventory = { ...skate
-                            };
+                            player.inventory.push({ ...skate
+                            });
                             skate.ownerId = player.id;
                             skate.spawned = false;
                             return;
@@ -1891,7 +2006,7 @@ io.on('connection', (socket) => {
                         const dy = (player.y + player.height / 2) - (item.y + item.height / 2);
                         const distance = Math.sqrt(dx * dx + dy * dy);
                         if (distance < PICKUP_DISTANCE) {
-                            player.inventory = item;
+                            player.inventory.push(item);
                             if (item.id === 'drone') {
                                 gameState.drones[player.id] = {
                                     ownerId: player.id,
@@ -1956,6 +2071,7 @@ io.on('connection', (socket) => {
             if (player.activeAbility !== ' ') {
                 gameState.takenAbilities = gameState.takenAbilities.filter(ability => ability !== player.activeAbility);
             }
+            gameState.portals = gameState.portals.filter(p => p.ownerId !== socket.id);
         }
         delete gameState.players[socket.id];
     });
@@ -1976,6 +2092,7 @@ function startNewRound() {
         const p = gameState.players[id];
         persistentData[id] = {
             inventory: p.inventory,
+            hasInventoryUpgrade: p.hasInventoryUpgrade,
             zombieSpeed: p.role === 'zombie' ? p.speed : p.zombieSpeed,
             zombieWidth: p.role === 'zombie' ? p.width : p.zombieWidth,
             zombieHeight: p.role === 'zombie' ? p.height : p.zombieHeight,
@@ -2000,26 +2117,37 @@ function startNewRound() {
     for (const id in gameState.players) {
         const player = gameState.players[id];
         const savedData = persistentData[id];
+
+        player.hasInventoryUpgrade = false;
+        player.inventorySlots = 1;
+
         if (savedData) {
-            player.inventory = savedData.inventory;
+            player.inventory = savedData.inventory || [];
+            player.hasInventoryUpgrade = savedData.hasInventoryUpgrade || false;
+            if (player.hasInventoryUpgrade) {
+                player.inventorySlots = 2;
+            }
             player.zombieSpeed = savedData.zombieSpeed;
             player.zombieWidth = savedData.zombieWidth;
             player.zombieHeight = savedData.zombieHeight;
-            if (player.inventory && player.inventory.id === 'skateboard') {
+
+            if (player.inventory && player.inventory.some(i => i.id === 'skateboard')) {
                 gameState.skateboard.ownerId = id;
                 gameState.skateboard.spawned = false;
             }
-            if (player.inventory && player.inventory.id === 'drone') {
+            if (player.inventory && player.inventory.some(i => i.id === 'drone')) {
+                const droneItem = player.inventory.find(i => i.id === 'drone');
                 gameState.drones[id] = {
                     ownerId: player.id,
                     x: player.x,
                     y: player.y,
-                    ammo: player.inventory.ammo
+                    ammo: droneItem ? droneItem.ammo : DRONE_MAX_AMMO
                 };
             }
         } else {
-            player.inventory = null;
+            player.inventory = [];
         }
+
         player.x = WORLD_WIDTH / 2 + 500;
         player.y = WORLD_HEIGHT / 2;
         player.role = 'human';
@@ -2040,6 +2168,7 @@ function startNewRound() {
         player.trapsLeft = 0;
         player.knockbackVx = 0;
         player.knockbackVy = 0;
+        player.hasAntidoteEffect = false;
     }
 }
 
@@ -2140,6 +2269,7 @@ setInterval(() => {
                     player.originalSpeed = player.speed;
                 }
             }
+            player.speed = Math.max(2, player.speed);
         }
     } else if (gameState.gamePhase === 'post-round') {
         gameState.postRoundTimeLeft--;
