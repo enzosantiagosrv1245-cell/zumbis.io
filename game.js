@@ -74,7 +74,7 @@ const gravityGloveSprite = loadImage('Sprites/GravityGlove.png');
 const cannonSprite = loadImage('Sprites/Cannon.png');
 const largeBallSprite = loadImage('Sprites/LargeBall.png');
 const portalsSprite = loadImage('Sprites/Portals.png');
-const inventoryUpgradeSprite = loadImage('Sprites/Slot  .png');
+const inventoryUpgradeSprite = loadImage('Sprites/Slot.png');
 
 const itemSprites = {
     skateboard: skateboardSprite,
