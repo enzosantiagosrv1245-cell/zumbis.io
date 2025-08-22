@@ -1,6 +1,8 @@
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
+const Matter = require('matter-js');
+
 const app = express();
 const server = http.createServer(app);
 const io = socketIo(server);
@@ -10,508 +12,225 @@ app.use(express.static(__dirname));
 const PORT = process.env.PORT || 3000;
 const TICK_RATE = 1000 / 60;
 
-// --- Constantes do Mundo e Regras Gerais ---
 const WORLD_WIDTH = 6000;
 const WORLD_HEIGHT = 2000;
 const ROUND_DURATION = 120;
 const UNMOVABLE_FURNITURE = ['atm'];
+const SAND_AREA = { x: 4080, y: 0, width: 1850, height: 2000 };
+const SEA_AREA = { x: 4965, y: 0, width: 1300, height: 2000 };
 
-// --- Constantes do Jogador (Humano) ---
 const INITIAL_PLAYER_SIZE = 40;
 const INITIAL_PLAYER_SPEED = 2;
 const MAX_PLAYER_SPEED = 4;
-const GROWTH_AMOUNT = 0.2;
-const SPEED_PER_PIXEL_OF_GROWTH = 0.07;
 const PLAYER_ACCELERATION = 1.2;
 const PLAYER_FRICTION = 0.90;
 
-// --- Constantes do Zumbi ---
-const ZOMBIE_SPEED_BOOST = 1.30;
-const ZOMBIE_PUSH_MODIFIER = 0.3;
-const ZOMBIE_SPEED_DECAY_PER_SECOND = 0.01;
+const ZOMBIE_SPEED_BOOST = 1.50;
+const ZOMBIE_PUSH_MODIFIER = 0.5;
 const ZOMBIE_MIN_SPEED = 2;
 
-// --- Constantes de Habilidades e Itens ---
-// Habilidade: Atleta (Sprint)
 const SPRINT_DURATION = 10000;
 const SPRINT_COOLDOWN = 30000;
-
-// Habilidade: Arqueiro (Archer)
-const ARROW_SPEED = 7;
-const ARROW_KNOCKBACK_IMPULSE = 10;
-const ARROW_LIFESPAN_AFTER_HIT = 1000;
-
-// Habilidade: Espião (Spy)
 const SPY_DURATION = 15000;
 const SPY_COOLDOWN = 30000;
-
-// Habilidade: Ilusionista (Illusionist)
-const ILLUSIONIST_COOLDOWN = 30000;
-const ILLUSION_LIFESPAN = 10000;
-const ILLUSION_SPEED = 2.5;
-
-// Habilidade: Borboleta (Butterfly)
-const BUTTERFLY_DURATION = 10000;
-const BUTTERFLY_SPEED = 5;
-
-// Item: Manto da Invisibilidade
+const BUTTERFLY_DURATION = 5000;
+const BUTTERFLY_SPEED = 4;
 const INVISIBILITY_CLOAK_BREAK_DISTANCE = 300;
-
-// Item: Skate
 const SKATEBOARD_SPEED_BOOST = 5;
 const SKATEBOARD_WIDTH = 90;
 const SKATEBOARD_HEIGHT = 35;
-
-// Item: Drone e Granada
 const DRONE_FOLLOW_FACTOR = 0.05;
 const DRONE_MAX_AMMO = 10;
 const GRENADE_FUSE_TIME = 1500;
 const GRENADE_RADIUS = 300;
 const GRENADE_KNOCKBACK_IMPULSE = 40;
-
-// Item: Canhão (Troll)
-const LARGE_BALL_SPEED = 2;
+const LARGE_BALL_SPEED = 30;
 const LARGE_BALL_RADIUS = 30;
-const LARGE_BALL_KNOCKBACK = 50;
-const LARGE_BALL_MAX_BOUNCES = 5;
-const CANNON_COOLDOWN = 5000; // 5 segundos
-const CANNON_FRONT_OFFSET = 200;
-
-// Item: Armadilha (Trap)
+const LARGE_BALL_MAX_BOUNCES = 20;
+const CANNON_COOLDOWN = 2000;
+const CANNON_FRONT_OFFSET = 100;
 const TRAP_DURATION = 1000;
-const TRAP_SIZE = 50;
-
-// Item: Portais
+const TRAP_SIZE = 40;
 const PORTAL_SIZE = 60;
-const PORTAL_COOLDOWN = 1000;
-
-// Interações Gerais de Itens
+const PORTAL_COOLDOWN = 5000;
 const DROPPED_ITEM_SIZE = 30;
-const PICKUP_DISTANCE = 150;
+const PICKUP_DISTANCE = 50;
 const DUCT_TRAVEL_TIME = 1000 / 20;
+const ARROW_SPEED = 10;
+const ARROW_KNOCKBACK_IMPULSE = 10;
+const ARROW_LIFESPAN_AFTER_HIT = 500;
 
-// --- Constantes do Motor de Física (Objetos Móveis) ---
-const BOX_FRICTION = 0.92;
-const BOX_PUSH_FORCE = 5;
-const BOX_COLLISION_DAMPING = 0.1;
-const BOX_SLIDE_FRICTION = 0.1;
-const ANGULAR_FRICTION = 0.02;
-const TORQUE_FACTOR = 0.0009;
-const FORCE_DRUM_MULTIPLIER = 2;
-const FORCE_DRUM_COLLISION_FORCE = 7;
-const WALL_PUSH_OUT_FORCE = 1.5;
-const SLEEP_THRESHOLD = 1;
+// <-- NOVO: Constantes da Mina
+const MINE_SIZE = 40;
+const MINE_EXPLOSION_RADIUS = 200;
+const MINE_PRIMARY_KNOCKBACK = 50;
+const MINE_SPLASH_KNOCKBACK = 40;
 
-const ABILITY_COSTS = {
-    athlete: 150,
-    archer: 150,
-    engineer: 100,
-    spy: 200,
-    illusionist: 200,
-    butterfly: 250,
-};
-const ZOMBIE_ABILITY_COSTS = {
-    trap: 50
-};
+const BOX_PUSH_FORCE = 0.003;
+const TORQUE_FACTOR = 0.5; 
+const FORCE_NORMAL_GLOVE_MULTIPLIER = 10;
+const LARGE_BALL_PLAYER_KNOCKBACK = 0.5;
 
+const FUNCTION_COSTS = { athlete: 150, engineer: 100, spy: 200, butterfly: 250 };
+const ZOMBIE_ABILITY_COSTS = { trap: 50, mine: 50 }; // <-- NOVO: Custo da Mina
+const playerCategory = 0x0002;
+const wallCategory = 0x0004;
+
+let engine, world;
+let bodiesMap = {};
 let gameState = {};
-let nextArrowId = 0;
-let nextGrenadeId = 0;
-let nextIllusionId = 0;
-let nextTrapId = 0;
-let nextUniqueObjectId = 0;
+let nextArrowId = 0, nextGrenadeId = 0, nextTrapId = 0, nextMineId = 0, nextUniqueObjectId = 0; // <-- NOVO: nextMineId
 
-function initializeGame() {
-    nextUniqueObjectId = 0;
-    gameState = {
-        players: {},
-        arrows: [],
-        drones: {},
-        grenades: [],
-        groundItems: [],
-        illusions: [],
-        traps: [],
-        largeBalls: [],
-        portals: [],
-        obstacles: [],
-        takenAbilities: [],
-        abilityCosts: ABILITY_COSTS,
-        zombieAbilityCosts: ZOMBIE_ABILITY_COSTS,
-        gamePhase: 'waiting',
-        startTime: 60,
-        timeLeft: ROUND_DURATION,
-        postRoundTimeLeft: 10,
-        skateboard: {
-            id: 'skateboard',
-            x: 0,
-            y: 0,
-            width: SKATEBOARD_WIDTH,
-            height: SKATEBOARD_HEIGHT,
-            spawned: false,
-            ownerId: null
-        },
-        box: [{
-            id: 'box',
-            uniqueId: nextUniqueObjectId++,
-            x: 2900,
-            y: 1150,
-            width: 192,
-            height: 192,
-            vx: 0,
-            vy: 0,
-            rotation: 300,
-            angularVelocity: 0
-        }],
-        furniture: [{
-            id: 'atm',
-            uniqueId: nextUniqueObjectId++,
-            x: 2895,
-            y: 870,
-            width: 150,
-            height: 130,
-            vx: 0,
-            vy: 0,
-            rotation: 0,
-            angularVelocity: 0,
-            isStatic: true, // Make ATM static
-        }, {
-            id: 'small_bed',
-            uniqueId: nextUniqueObjectId++,
-            x: 300,
-            y: 400,
-            width: 108,
-            height: 200,
-            vx: 0,
-            vy: 0,
-            rotation: 0,
-            angularVelocity: 0
-        }, {
-            id: 'small_table',
-            uniqueId: nextUniqueObjectId++,
-            x: 2500,
-            y: 300,
-            width: 250,
-            height: 132,
-            vx: 0,
-            vy: 0,
-            rotation: 0,
-            angularVelocity: 0
-        }, {
-            id: 'big_table',
-            uniqueId: nextUniqueObjectId++,
-            x: 500,
-            y: 1400,
-            width: 480,
-            height: 240,
-            vx: 0,
-            vy: 0,
-            rotation: 0,
-            angularVelocity: 0
-        }, {
-            id: 'car',
-            uniqueId: nextUniqueObjectId++,
-            x: 3650,
-            y: 300,
-            width: 280,
-            height: 450,
-            vx: 0,
-            vy: 0,
-            rotation: 0,
-            angularVelocity: 0
-        }, {
-            id: 'small_bed',
-            uniqueId: nextUniqueObjectId++,
-            x: 1100,
-            y: 350,
-            width: 108,
-            height: 200,
-            vx: 0,
-            vy: 0,
-            rotation: 0,
-            angularVelocity: 0
-        }, {
-            id: 'small_table',
-            uniqueId: nextUniqueObjectId++,
-            x: 2300,
-            y: 1300,
-            width: 250,
-            height: 122,
-            vx: 0,
-            vy: 0,
-            rotation: 0,
-            angularVelocity: 0
-        }, {
-            id: 'small_table',
-            uniqueId: nextUniqueObjectId++,
-            x: 1500,
-            y: 810,
-            width: 288,
-            height: 126,
-            vx: 0,
-            vy: 0,
-            rotation: 0,
-            angularVelocity: 0
-        }],
-        ducts: [{
-            x: 3150,
-            y: 480,
-            width: 80,
-            height: 80
-        }, {
-            x: 275,
-            y: 865,
-            width: 80,
-            height: 80
-        }, {
-            x: 2315,
-            y: 275,
-            width: 80,
-            height: 80
-        }, {
-            x: 3940,
-            y: 1440,
-            width: 80,
-            height: 80
-        }, {
-            x: 2075,
-            y: 1645,
-            width: 80,
-            height: 80
-        }],
-        sunshades: [{
-            x: 4350,
-            y: 600,
-            width: 320,
-            height: 340
-        }, {
-            x: 4440,
-            y: 1400,
-            width: 320,
-            height: 340
-        }],
-        house: {
-            x: 200,
-            y: 200,
-            width: 2697,
-            height: 1670,
-            wallThickness: 70,
-            walls: []
-        },
-        garage: {
-            x: 800,
-            y: 1200,
-            width: 700,
-            height: 600,
-            wallThickness: 70,
-            walls: []
-        },
-        hardWalls: [],
-    };
-    buildWalls(gameState.house);
-    buildWalls(gameState.garage);
-    buildHardWalls();
-}
-
-function buildWalls(structure) {
-    const s = structure;
-    const wt = s.wallThickness;
-    s.walls = [];
-    if (s === gameState.house) {
-        s.walls.push({
-            x: s.x,
-            y: s.y,
-            width: s.width,
-            height: wt
-        });
-        s.walls.push({
-            x: s.x,
-            y: s.y + s.height - wt,
-            width: s.width - 1300,
-            height: wt
-        });
-        s.walls.push({
-            x: s.x,
-            y: s.y,
-            width: wt,
-            height: 820
-        });
-        s.walls.push({
-            x: s.x,
-            y: s.y + 1020,
-            width: wt,
-            height: s.height - 1020
-        });
-        s.walls.push({
-            x: s.x + s.width - wt,
-            y: s.y,
-            width: wt,
-            height: 350
-        });
-        s.walls.push({
-            x: s.x + s.width - wt,
-            y: s.y + 600,
-            width: wt,
-            height: (s.height - 770) - 600
-        });
-        s.walls.push({
-            x: s.x + 900,
-            y: s.y,
-            width: wt,
-            height: 470
-        });
-        s.walls.push({
-            x: s.x + 500,
-            y: s.y + 1020,
-            width: wt,
-            height: 650
-        });
-        s.walls.push({
-            x: s.x + 1500,
-            y: s.y,
-            width: wt,
-            height: 300
-        });
-        s.walls.push({
-            x: s.x + 1328,
-            y: s.y + 830,
-            width: wt,
-            height: 840
-        });
-        s.walls.push({
-            x: s.x + 2200,
-            y: s.y,
-            width: wt,
-            height: 470
-        });
-        s.walls.push({
-            x: s.x + 2195,
-            y: s.y + 750,
-            width: wt,
-            height: 150
-        });
-        s.walls.push({
-            x: s.x,
-            y: s.y + 400,
-            width: 700,
-            height: wt
-        });
-        s.walls.push({
-            x: s.x + 1800,
-            y: s.y + 400,
-            width: 270,
-            height: wt
-        });
-        s.walls.push({
-            x: s.x + 250,
-            y: s.y + 1020,
-            width: 850,
-            height: wt
-        });
-        s.walls.push({
-            x: s.x + 1150,
-            y: s.y + 400,
-            width: 720,
-            height: wt
-        });
-        s.walls.push({
-            x: s.x + 1800,
-            y: s.y,
-            width: wt,
-            height: 400 + wt
-        });
-        s.walls.push({
-            x: s.x,
-            y: s.y + 750,
-            width: 550,
-            height: wt
-        });
-        s.walls.push({
-            x: s.x + 1330,
-            y: s.y + 830,
-            width: 533,
-            height: wt
-        });
-        s.walls.push({
-            x: s.x + 2000,
-            y: s.y + 830,
-            width: 697,
-            height: wt
-        });
-        s.walls.push({
-            x: s.x + 480,
-            y: s.y + 620,
-            width: wt,
-            height: 200
-        });
-    } else if (s === gameState.garage) {
-        s.walls.push({
-            x: s.x + 1400,
-            y: s.y,
-            width: s.width - 200,
-            height: wt
-        });
-        s.walls.push({
-            x: s.x + 1200,
-            y: s.y + s.height - wt,
-            width: s.width,
-            height: wt
-        });
-        s.walls.push({
-            x: s.x + 1200,
-            y: s.y,
-            width: wt,
-            height: s.height
-        });
-        s.walls.push({
-            x: s.x + s.width - wt + 1200,
-            y: s.y,
-            width: wt,
-            height: s.height - 460
-        });
-        s.walls.push({
-            x: s.x + s.width - wt + 1200,
-            y: s.y + 460,
-            width: wt,
-            height: 140
-        });
+function getDensityById(id) {
+    switch (id) {
+        case 'car': return 0.0015;
+        case 'big_table': return 0.003;
+        case 'box': return 0.0025;
+        default: return 0.002;
     }
 }
 
-function buildHardWalls() {
-    gameState.hardWalls.push({
-        x: 2600,
-        y: 200,
-        width: 140,
-        height: 70
+function createPlayerBody(player) {
+    const infectionRadius = player.width * 0.75;
+    const physicsRadius = player.role === 'human' 
+        ? infectionRadius / 3
+        : infectionRadius / 2;
+
+    const body = Matter.Bodies.circle(player.x, player.y, physicsRadius, {
+        inertia: Infinity,
+        frictionAir: 0.02,
+        friction: 0,
+        label: 'player',
+        collisionFilter: {
+            category: playerCategory,
+            mask: 0xFFFFFFFF
+        }
     });
+    body.playerId = player.id;
+    return body;
 }
 
-// =================================================================
-// COLLISION & PHYSICS HELPERS
-// =================================================================
+function initializeGame() {
+    nextUniqueObjectId = 0;
+    bodiesMap = {};
+    engine = Matter.Engine.create();
+    world = engine.world;
+    world.gravity.y = 0;
+    setupCollisionEvents();
+    const currentPlayers = gameState.players || {};
+    gameState = {
+        players: currentPlayers,
+        arrows: [], drones: {}, grenades: [], groundItems: [], traps: [], mines: [], largeBalls: [], portals: [], // <-- NOVO: mines
+        box: [], furniture: [], obstacles: [], takenFunctions: [],
+        functionCosts: FUNCTION_COSTS, zombieAbilityCosts: ZOMBIE_ABILITY_COSTS,
+        gamePhase: 'waiting', startTime: 60, timeLeft: ROUND_DURATION, postRoundTimeLeft: 10,
+        skateboard: { id: 'skateboard', x: 0, y: 0, width: SKATEBOARD_WIDTH, height: SKATEBOARD_HEIGHT, spawned: false, ownerId: null },
+        runningTennis: { id: 'runningTennis', x: 0, y: 0, width: 40, height: 40, spawned: false, ownerId: null },
+        ducts: [
+            { x: 3150, y: 480, width: 80, height: 80 }, { x: 275, y: 865, width: 80, height: 80 },
+            { x: 2315, y: 275, width: 80, height: 80 }, { x: 3940, y: 1440, width: 80, height: 80 },
+            { x: 2075, y: 1645, width: 80, height: 80 }
+        ],
+        sunshades: [
+            { x: 4350, y: 600, width: 320, height: 340 }, { x: 4440, y: 1400, width: 320, height: 340 }
+        ],
+        house: { x: 200, y: 200, width: 2697, height: 1670, wallThickness: 70, walls: [] },
+        garage: { x: 800, y: 1200, width: 700, height: 600, wallThickness: 70, walls: [] },
+    };
+    createWorldBodies();
+}
 
-function getMass(obj) {
-    if (!obj || !obj.id) return 1;
-    switch (obj.id) {
-        case 'car':
-            return 10;
-        case 'big_table':
-            return 3;
-        case 'box':
-            return 3;
-        case 'small_bed':
-            return 3;
-        case 'small_table':
-            return 3;
-        default:
-            return 1;
+function createWorldBodies() {
+    const allBodies = [];
+    const wallThickness = 50;
+    const boundaries = [
+        Matter.Bodies.rectangle(WORLD_WIDTH / 2, -wallThickness / 2, WORLD_WIDTH + (wallThickness * 2), wallThickness, { isStatic: true, label: 'boundary' }),
+        Matter.Bodies.rectangle(WORLD_WIDTH / 2, WORLD_HEIGHT + wallThickness / 2, WORLD_WIDTH + (wallThickness * 2), wallThickness, { isStatic: true, label: 'boundary' }),
+        Matter.Bodies.rectangle(-wallThickness / 2, WORLD_HEIGHT / 2, wallThickness, WORLD_HEIGHT + (wallThickness * 2), { isStatic: true, label: 'boundary' }),
+        Matter.Bodies.rectangle(WORLD_WIDTH + wallThickness / 2, WORLD_HEIGHT / 2, wallThickness, WORLD_HEIGHT + (wallThickness * 2), { isStatic: true, label: 'boundary' })
+    ];
+    allBodies.push(...boundaries);
+
+    const furnitureData = [
+        { id: 'atm', x: 2895, y: 870, width: 150, height: 130, isStatic: true },
+        { id: 'small_bed', x: 300, y: 400, width: 108, height: 200 },
+        { id: 'small_table', x: 2500, y: 300, width: 250, height: 132 },
+        { id: 'big_table', x: 500, y: 1400, width: 480, height: 240 },
+        { id: 'car', x: 3650, y: 300, width: 280, height: 450 },
+        { id: 'small_bed', x: 1100, y: 350, width: 108, height: 200 },
+        { id: 'small_table', x: 2300, y: 1300, width: 250, height: 122 },
+        { id: 'small_table', x: 1500, y: 810, width: 288, height: 126 }
+    ];
+    const boxData = [{ id: 'box', x: 2900, y: 1150, width: 192, height: 192, rotation: 300 }];
+    
+    boxData.forEach(data => {
+        const uniqueId = nextUniqueObjectId++;
+        const body = Matter.Bodies.rectangle(data.x + data.width / 2, data.y + data.height / 2, data.width, data.height, {
+            angle: (data.rotation || 0) * (Math.PI / 180),
+            friction: 0.1, frictionAir: 0.01, restitution: 0.4,
+            density: getDensityById(data.id), label: 'furniture'
+        });
+        body.uniqueId = uniqueId; body.gameId = data.id;
+        allBodies.push(body); bodiesMap[uniqueId] = body;
+        gameState.box.push({ ...data, uniqueId, vx: 0, vy: 0, angularVelocity: 0 });
+    });
+
+    furnitureData.forEach(data => {
+        const uniqueId = nextUniqueObjectId++;
+        const body = Matter.Bodies.rectangle(data.x + data.width / 2, data.y + data.height / 2, data.width, data.height, {
+            isStatic: data.isStatic || false,
+            angle: (data.rotation || 0) * (Math.PI / 180),
+            friction: 0.1, frictionAir: 0.02, restitution: 0.3,
+            density: getDensityById(data.id), label: data.isStatic ? 'wall' : 'furniture'
+        });
+        body.uniqueId = uniqueId; body.gameId = data.id;
+        allBodies.push(body); bodiesMap[uniqueId] = body;
+        gameState.furniture.push({ ...data, uniqueId, vx: 0, vy: 0, angularVelocity: 0 });
+    });
+
+    buildWalls(gameState.house); buildWalls(gameState.garage);
+    [...gameState.house.walls, ...gameState.garage.walls].forEach(wall => {
+        allBodies.push(Matter.Bodies.rectangle(wall.x + wall.width / 2, wall.y + wall.height / 2, wall.width, wall.height, { isStatic: true, label: 'wall', collisionFilter: { category: wallCategory } }));
+    });
+    
+    Matter.World.add(world, allBodies);
+}
+
+function buildWalls(structure) {
+    const s = structure; const wt = s.wallThickness; s.walls = [];
+    if (s === gameState.house) {
+        s.walls.push({ x: s.x, y: s.y, width: s.width, height: wt });
+        s.walls.push({ x: s.x, y: s.y + s.height - wt, width: s.width - 1300, height: wt });
+        s.walls.push({ x: s.x, y: s.y, width: wt, height: 820 });
+        s.walls.push({ x: s.x, y: s.y + 1020, width: wt, height: s.height - 1020 });
+        s.walls.push({ x: s.x + s.width - wt, y: s.y, width: wt, height: 350 });
+        s.walls.push({ x: s.x + s.width - wt, y: s.y + 600, width: wt, height: (s.height - 770) - 600 });
+        s.walls.push({ x: s.x + 900, y: s.y, width: wt, height: 470 });
+        s.walls.push({ x: s.x + 500, y: s.y + 1020, width: wt, height: 650 });
+        s.walls.push({ x: s.x + 1500, y: s.y, width: wt, height: 300 });
+        s.walls.push({ x: s.x + 1328, y: s.y + 830, width: wt, height: 840 });
+        s.walls.push({ x: s.x + 2200, y: s.y, width: wt, height: 470 });
+        s.walls.push({ x: s.x + 2195, y: s.y + 750, width: wt, height: 150 });
+        s.walls.push({ x: s.x, y: s.y + 400, width: 700, height: wt });
+        s.walls.push({ x: s.x + 1800, y: s.y + 400, width: 270, height: wt });
+        s.walls.push({ x: s.x + 250, y: s.y + 1020, width: 850, height: wt });
+        s.walls.push({ x: s.x + 1150, y: s.y + 400, width: 720, height: wt });
+        s.walls.push({ x: s.x + 1800, y: s.y, width: wt, height: 400 + wt });
+        s.walls.push({ x: s.x, y: s.y + 750, width: 550, height: wt });
+        s.walls.push({ x: s.x + 1330, y: s.y + 830, width: 533, height: wt });
+        s.walls.push({ x: s.x + 2000, y: s.y + 830, width: 697, height: wt });
+        s.walls.push({ x: s.x + 480, y: s.y + 620, width: wt, height: 200 });
+    } else if (s === gameState.garage) {
+        s.walls.push({ x: s.x + 1400, y: s.y, width: s.width - 200, height: wt });
+        s.walls.push({ x: s.x + 1200, y: s.y + s.height - wt, width: s.width, height: wt });
+        s.walls.push({ x: s.x + 1200, y: s.y, width: wt, height: s.height });
+        s.walls.push({ x: s.x + s.width - wt + 1200, y: s.y, width: wt, height: s.height - 460 });
+        s.walls.push({ x: s.x + s.width - wt + 1200, y: s.y + 460, width: wt, height: 140 });
     }
 }
 
 function isColliding(rect1, rect2) {
-    if (!rect1 || !rect2) {
-        return false;
-    }
+    if (!rect1 || !rect2) { return false; }
     return rect1.x < rect2.x + rect2.width && rect1.x + rect1.width > rect2.x && rect1.y < rect2.y + rect2.height && rect1.y + rect1.height > rect2.y;
 }
 
@@ -523,311 +242,71 @@ function isCollidingCircleCircle(c1, c2) {
     return distance < c1.radius + c2.radius;
 }
 
-function isCollidingCircleRect(circle, rect) {
-    if (!circle || !rect) return false;
-    const testX = Math.max(rect.x, Math.min(circle.cx, rect.x + rect.width));
-    const testY = Math.max(rect.y, Math.min(circle.cy, rect.y + rect.height));
-    const dx = circle.cx - testX;
-    const dy = circle.cy - testY;
-    const distanceSquared = (dx * dx) + (dy * dy);
-    return distanceSquared < (circle.radius * circle.radius);
-}
-
-function getVertices(rect) {
-    const vertices = [];
-    const cx = rect.x + rect.width / 2;
-    const cy = rect.y + rect.height / 2;
-    const angle = rect.rotation || 0;
-    const sin = Math.sin(angle);
-    const cos = Math.cos(angle);
-    const halfWidth = rect.width / 2;
-    const halfHeight = rect.height / 2;
-    const points = [{
-        x: -halfWidth,
-        y: -halfHeight
-    }, {
-        x: halfWidth,
-        y: -halfHeight
-    }, {
-        x: halfWidth,
-        y: halfHeight
-    }, {
-        x: -halfWidth,
-        y: halfHeight
-    }];
-    for (const p of points) {
-        vertices.push({
-            x: cx + p.x * cos - p.y * sin,
-            y: cy + p.x * sin + p.y * cos
-        });
-    }
-    return vertices;
-}
-
-function getAxes(vertices) {
-    const axes = [];
-    for (let i = 0; i < vertices.length; i++) {
-        const p1 = vertices[i];
-        const p2 = vertices[i + 1 == vertices.length ? 0 : i + 1];
-        const edge = {
-            x: p1.x - p2.x,
-            y: p1.y - p2.y
-        };
-        const normal = {
-            x: -edge.y,
-            y: edge.x
-        };
-        const length = Math.sqrt(normal.x * normal.x + normal.y * normal.y);
-        axes.push({
-            x: normal.x / length,
-            y: normal.y / length
-        });
-    }
-    return [axes[0], axes[1]];
-}
-
-function project(vertices, axis) {
-    let min = Infinity;
-    let max = -Infinity;
-    for (const v of vertices) {
-        const dotProduct = v.x * axis.x + v.y * axis.y;
-        min = Math.min(min, dotProduct);
-        max = Math.max(max, dotProduct);
-    }
-    return {
-        min,
-        max
-    };
-}
-
-function checkCollisionSAT(poly1, poly2) {
-    const vertices1 = getVertices(poly1);
-    const vertices2 = getVertices(poly2);
-    const axes = [...getAxes(vertices1), ...getAxes(vertices2)];
-    let minOverlap = Infinity;
-    let smallestAxis = null;
-    for (const axis of axes) {
-        const proj1 = project(vertices1, axis);
-        const proj2 = project(vertices2, axis);
-        const overlap = Math.min(proj1.max, proj2.max) - Math.max(proj1.min, proj2.min);
-        if (overlap < 0.1) {
-            return null;
-        }
-        if (overlap < minOverlap) {
-            minOverlap = overlap;
-            smallestAxis = axis;
-        }
-    }
-    if (!smallestAxis) {
-        return null;
-    }
-    const mtv = {
-        x: smallestAxis.x * minOverlap,
-        y: smallestAxis.y * minOverlap
-    };
-    const centerVector = {
-        x: (poly2.x + poly2.width / 2) - (poly1.x + poly1.width / 2),
-        y: (poly2.y + poly2.height / 2) - (poly1.y + poly1.height / 2)
-    };
-    if ((centerVector.x * mtv.x + centerVector.y * mtv.y) < 0) {
-        mtv.x *= -1;
-        mtv.y *= -1;
-    }
-    return mtv;
-}
-
-function checkCollisionSAT_Circle_OBB(circle, obb) {
-    const vertices = getVertices(obb);
-    const axes = getAxes(vertices);
-
-    let closestVertex = null;
-    let minDistanceSq = Infinity;
-    for (const v of vertices) {
-        const dx = v.x - circle.cx;
-        const dy = v.y - circle.cy;
-        const distSq = dx * dx + dy * dy;
-        if (distSq < minDistanceSq) {
-            minDistanceSq = distSq;
-            closestVertex = v;
-        }
-    }
-
-    const axisToClosest = {
-        x: closestVertex.x - circle.cx,
-        y: closestVertex.y - circle.cy
-    };
-    const len = Math.sqrt(axisToClosest.x * axisToClosest.x + axisToClosest.y * axisToClosest.y);
-    if (len > 0) {
-        axes.push({
-            x: axisToClosest.x / len,
-            y: axisToClosest.y / len
-        });
-    }
-
-    let minOverlap = Infinity;
-    let smallestAxis = null;
-
-    for (const axis of axes) {
-        const projOBB = project(vertices, axis);
-        const circleCenterProj = circle.cx * axis.x + circle.cy * axis.y;
-        const projCircle = {
-            min: circleCenterProj - circle.radius,
-            max: circleCenterProj + circle.radius
-        };
-        const overlap = Math.min(projOBB.max, projCircle.max) - Math.max(projOBB.min, projCircle.min);
-
-        if (overlap < 0.1) {
-            return null;
-        }
-        if (overlap < minOverlap) {
-            minOverlap = overlap;
-            smallestAxis = axis;
-        }
-    }
-
-    if (!smallestAxis) {
-        return null;
-    }
-
-    const mtv = {
-        x: smallestAxis.x * minOverlap,
-        y: smallestAxis.y * minOverlap
-    };
-    const centerVector = {
-        x: circle.cx - (obb.x + obb.width / 2),
-        y: circle.cy - (obb.y + obb.height / 2)
-    };
-    if ((centerVector.x * mtv.x + centerVector.y * mtv.y) < 0) {
-        mtv.x *= -1;
-        mtv.y *= -1;
-    }
-    return mtv;
-}
-
-// =================================================================
-// CORE GAME LOGIC
-// =================================================================
 function createNewPlayer(socket) {
-    gameState.players[socket.id] = {
+    const startX = WORLD_WIDTH / 2 + 500;
+    const startY = WORLD_HEIGHT / 2;
+
+    const player = {
         name: `Player${Math.floor(100 + Math.random() * 900)}`,
         id: socket.id,
-        x: WORLD_WIDTH / 2 + 500,
-        y: WORLD_HEIGHT / 2,
-        vx: 0,
-        vy: 0,
-        width: INITIAL_PLAYER_SIZE,
-        height: INITIAL_PLAYER_SIZE * 1.5,
-        speed: INITIAL_PLAYER_SPEED,
-        originalSpeed: INITIAL_PLAYER_SPEED,
-        rotation: 0,
-        role: 'human',
-        neutralAbility: null,
-        selectedSlot: 0,
-        activeAbility: ' ',
-        coins: 10000,
-        isSprinting: false,
-        sprintAvailable: true,
-        isSpying: false,
-        spyUsesLeft: 2,
-        spyCooldown: false,
-        isHidden: false,
-        arrowAmmo: 0,
-        archerLastShotTime: 0,
-        engineerCooldownUntil: 0,
-        isInDuct: false,
-        zombieSpeed: null,
-        zombieWidth: null,
-        zombieHeight: null,
-        inventory: [],
-        inventorySlots: 1,
-        hasInventoryUpgrade: false,
-        illusionistAvailable: true,
-        illusionistPassiveAvailable: true,
-        butterflyUsed: false,
-        isFlying: false,
-        teleportCooldownUntil: 0,
-        isInvisible: false,
-        zombieAbility: null,
-        trapsLeft: 0,
-        isTrapped: false,
-        trappedUntil: 0,
-        carryingObject: null,
-        portalCooldownUntil: 0,
-        hasAntidoteEffect: false,
-        knockbackVx: 0,
-        knockbackVy: 0,
-        input: {
-            movement: {
-                up: false,
-                down: false,
-                left: false,
-                right: false
-            },
-            mouse: {
-                x: 0,
-                y: 0
-            },
-            rotation: 0,
-            worldMouse: {
-                x: 0,
-                y: 0
-            }
+        x: startX,
+        y: startY,
+        vx: 0, vy: 0, knockbackVx: 0, knockbackVy: 0,
+        width: INITIAL_PLAYER_SIZE, height: INITIAL_PLAYER_SIZE * 1.5,
+        speed: INITIAL_PLAYER_SPEED, originalSpeed: INITIAL_PLAYER_SPEED, rotation: 0,
+        role: 'human', selectedSlot: 0, activeFunction: ' ', gems: 10000,
+        isSprinting: false, sprintAvailable: true, isSpying: false, spyUsesLeft: 2, spyCooldown: false,
+        isHidden: false, engineerCooldownUntil: 0, isInDuct: false,
+        inventory: [], inventorySlots: 1, hasInventoryUpgrade: false,
+        butterflyUsed: false, isFlying: false, teleportCooldownUntil: 0, isInvisible: false,
+        zombieAbility: null, trapsLeft: 0, minesLeft: 0, // <-- NOVO
+        isTrapped: false, trappedUntil: 0,
+        carryingObject: null, portalCooldownUntil: 0, hasAntidoteEffect: false,
+        nextGrowthTime: 0, seaEnterTime: null, seaCountdown: null,
+        draggedBy: null, draggedUntil: null,
+        input: { 
+            movement: { up: false, down: false, left: false, right: false },
+            worldMouse: { x: 0, y: 0 }
         }
     };
+    gameState.players[socket.id] = player;
+    
+    const playerBody = createPlayerBody(player);
+    Matter.World.add(world, playerBody);
 }
 
 function dropHeldItem(player) {
     if (!player || !player.inventory) return;
-
-    // Troll logic
-    if (player.role === 'neutral') {
-        player.inventory = null;
-        return;
-    }
-
-    // Human logic (now with array inventory)
     if (!Array.isArray(player.inventory) || player.inventory.length === 0) return;
-
-    // Drop all items on infection/disconnect
     while (player.inventory.length > 0) {
         const itemToDrop = player.inventory.pop();
         if (!itemToDrop) continue;
-
-        if (itemToDrop.id === 'gravityGlove') {
-            continue; // Gravity glove is not dropped
-        }
-
-        let dropData = {
-            id: itemToDrop.id,
-            x: player.x,
-            y: player.y,
-            width: DROPPED_ITEM_SIZE,
-            height: DROPPED_ITEM_SIZE
-        };
+        if (itemToDrop.id === 'gravityGlove') continue;
+        let dropData = { id: itemToDrop.id, x: player.x, y: player.y, width: DROPPED_ITEM_SIZE, height: DROPPED_ITEM_SIZE };
         switch (itemToDrop.id) {
             case 'skateboard':
-                const skate = gameState.skateboard;
-                skate.spawned = true;
-                skate.ownerId = null;
-                skate.x = player.x;
-                skate.y = player.y;
-                // Skateboard is an exception, doesn't become a groundItem
+                gameState.skateboard.spawned = true; gameState.skateboard.ownerId = null;
+                gameState.skateboard.x = player.x; gameState.skateboard.y = player.y;
+                continue;
+            case 'runningTennis':
+                gameState.runningTennis.spawned = true; gameState.runningTennis.ownerId = null;
+                gameState.runningTennis.x = player.x; gameState.runningTennis.y = player.y;
                 continue;
             case 'drone':
                 delete gameState.drones[player.id];
                 dropData.ammo = itemToDrop.ammo || DRONE_MAX_AMMO;
                 break;
+            case 'bow':
+                dropData.ammo = itemToDrop.ammo;
+                break;
+            case 'shield':
+                dropData.width = 26;
+                dropData.height = 120;
+                break;
             case 'invisibilityCloak':
-                dropData.active = false;
-                break;
+                player.isInvisible = false; dropData.active = false; break;
             case 'card':
-                dropData.width = 37;
-                dropData.height = 25;
-                break;
-            case 'Drum':
-                dropData.width = 60;
-                dropData.height = 30;
-                break;
+                dropData.width = 37; dropData.height = 25; break;
         }
         gameState.groundItems.push(dropData);
     }
@@ -835,51 +314,235 @@ function dropHeldItem(player) {
 
 function updateGameState() {
     const now = Date.now();
-    const allCollidables = [...gameState.box, ...gameState.furniture.filter(f => !f.isStatic)];
-    const allWalls = [...gameState.house.walls, ...gameState.garage.walls, ...gameState.obstacles, ...(gameState.hardWalls || [])];
+    Matter.Engine.update(engine, TICK_RATE);
 
-    gameState.illusions = gameState.illusions.filter(illusion => {
-        if (now - illusion.creationTime > ILLUSION_LIFESPAN) {
-            return false;
+    for (const body of world.bodies) {
+        if (body.uniqueId !== undefined) {
+            let obj = gameState.box.find(b => b.uniqueId === body.uniqueId) || gameState.furniture.find(f => f.uniqueId === body.uniqueId) || gameState.largeBalls.find(b => b.uniqueId === body.uniqueId);
+            if (obj) {
+                obj.x = body.position.x - (obj.width || obj.radius * 2) / 2;
+                obj.y = body.position.y - (obj.height || obj.radius * 2) / 2;
+                obj.rotation = body.angle;
+                obj.vx = body.velocity.x;
+                obj.vy = body.velocity.y;
+                obj.angularVelocity = body.angularVelocity;
+            }
         }
-        const originalX = illusion.x;
-        const originalY = illusion.y;
-        illusion.x += illusion.vx;
-        illusion.y += illusion.vy;
-        const illusionRect = { ...illusion
-        };
-        for (const wall of allWalls) {
-            if (isColliding(illusionRect, wall)) {
-                illusion.x = originalX;
-                illusion.y = originalY;
-                illusion.vx = 0;
-                illusion.vy = 0;
+        if (body.playerId) {
+            const player = gameState.players[body.playerId];
+            if (player) {
+                player.x = body.position.x - player.width / 2;
+                player.y = body.position.y - player.height / 2;
+                player.vx = body.velocity.x;
+                player.vy = body.velocity.y;
+                if (!isFinite(player.x) || !isFinite(player.y)) {
+                    Matter.Body.setPosition(body, { x: WORLD_WIDTH / 2, y: WORLD_HEIGHT / 2 });
+                    Matter.Body.setVelocity(body, { x: 0, y: 0 });
+                }
+            }
+        }
+    }
+
+    for (let i = gameState.largeBalls.length - 1; i >= 0; i--) {
+        const ball = gameState.largeBalls[i];
+        if (now - ball.createdAt > 5000) {
+            const ballBody = world.bodies.find(b => b.uniqueId === ball.uniqueId);
+            if (ballBody) Matter.World.remove(world, ballBody);
+            gameState.largeBalls.splice(i, 1);
+        }
+    }
+
+    for (const id in gameState.players) {
+        const player = gameState.players[id];
+        const playerBody = world.bodies.find(b => b.playerId === id);
+        if (!player || !playerBody || !player.input) continue;
+
+        const infectionRadius = player.width * 0.75;
+        player.physicalHitbox = { cx: playerBody.position.x, cy: playerBody.position.y, radius: infectionRadius };
+        
+        if (gameState.gamePhase === 'running' && player.role === 'human' && now > (player.nextGrowthTime || 0)) {
+            const speedIncrease = Math.random() * (0.01 - 0.005) + 0.005;
+            player.speed += speedIncrease;
+            const sizeIncrease = 0.05;
+            player.width += sizeIncrease;
+            player.height = player.width * 1.5;
+            const nextInterval = Math.random() * (3000 - 330) + 330;
+            player.nextGrowthTime = now + nextInterval;
+        }
+
+        if (player.draggedBy && now < player.draggedUntil) {
+            const ballBody = world.bodies.find(b => b.uniqueId === player.draggedBy);
+            if (ballBody) {
+                const dragForce = Matter.Vector.mult(Matter.Vector.normalise(ballBody.velocity), LARGE_BALL_PLAYER_KNOCKBACK / 10);
+                if (isFinite(dragForce.x) && isFinite(dragForce.y)) {
+                    Matter.Body.applyForce(playerBody, playerBody.position, dragForce);
+                }
+            } else {
+                player.draggedBy = null;
+                player.draggedUntil = null;
+            }
+        } else if (player.draggedBy && now >= player.draggedUntil) {
+            player.draggedBy = null;
+            player.draggedUntil = null;
+        }
+
+        if (player.isTrapped && now > player.trappedUntil) player.isTrapped = false;
+        
+        if(player.knockbackVx !== 0 || player.knockbackVy !== 0) {
+            Matter.Body.applyForce(playerBody, playerBody.position, {x: player.knockbackVx/50, y: player.knockbackVy/50});
+            player.knockbackVx *= 0.9;
+            player.knockbackVy *= 0.9;
+            if (Math.hypot(player.knockbackVx, player.knockbackVy) < 0.1) {
+                player.knockbackVx = 0;
+                player.knockbackVy = 0;
+            }
+        }
+        
+        if (player.isTrapped) {
+            Matter.Body.setVelocity(playerBody, {x: 0, y: 0});
+            continue;
+        }
+
+        if (player.isFlying) {
+            let moveX = 0, moveY = 0;
+            if (player.input.movement.up) moveY -= BUTTERFLY_SPEED;
+            if (player.input.movement.down) moveY += BUTTERFLY_SPEED;
+            if (player.input.movement.left) moveX -= BUTTERFLY_SPEED;
+            if (player.input.movement.right) moveX += BUTTERFLY_SPEED;
+            Matter.Body.setPosition(playerBody, { x: playerBody.position.x + moveX, y: playerBody.position.y + moveY });
+            continue;
+        }
+
+        if (player.inventory.some(i => i && i.id === 'skateboard')) {
+            const skateSpeed = SKATEBOARD_SPEED_BOOST;
+            const angle = player.rotation;
+            const velocity = { x: Math.cos(angle) * skateSpeed, y: Math.sin(angle) * skateSpeed };
+            Matter.Body.setVelocity(playerBody, velocity);
+        } else {
+            let targetVx = player.vx, targetVy = player.vy;
+            let accelX = 0, accelY = 0;
+            if (player.input.movement.left) accelX -= 1;
+            if (player.input.movement.right) accelX += 1;
+            if (player.input.movement.up) accelY -= 1;
+            if (player.input.movement.down) accelY += 1;
+
+            if (accelX !== 0 || accelY !== 0) {
+                const mag = Math.sqrt(accelX * accelX + accelY * accelY);
+                targetVx += (accelX / mag) * PLAYER_ACCELERATION;
+                targetVy += (accelY / mag) * PLAYER_ACCELERATION;
+            }
+
+            targetVx *= PLAYER_FRICTION;
+            targetVy *= PLAYER_FRICTION;
+
+            let effectiveSpeed = player.isSprinting ? MAX_PLAYER_SPEED : player.speed;
+            if (player.role === 'zombie') effectiveSpeed *= ZOMBIE_SPEED_BOOST;
+            
+            if (isColliding(player, SAND_AREA)) {
+                effectiveSpeed *= 0.80;
+            }
+            if (isColliding(player, SEA_AREA)) {
+                effectiveSpeed *= 0.50;
+            }
+
+            const currentSpeedSq = targetVx * targetVx + targetVy * targetVy;
+            if (currentSpeedSq > effectiveSpeed * effectiveSpeed) {
+                const speedMag = Math.sqrt(currentSpeedSq);
+                targetVx = (targetVx / speedMag) * effectiveSpeed;
+                targetVy = (targetVy / speedMag) * effectiveSpeed;
+            }
+            
+            Matter.Body.setVelocity(playerBody, { x: targetVx, y: targetVy });
+        }
+
+
+        if (player.role === 'human' && gameState.gamePhase === 'running') {
+            const isInSea = isColliding(player, SEA_AREA);
+            if (isInSea && !player.isFlying) {
+                if (player.seaEnterTime === null) {
+                    player.seaEnterTime = Date.now();
+                }
+                const timeElapsed = Date.now() - player.seaEnterTime;
+                const timeLeft = 5 - (timeElapsed / 1000);
+                player.seaCountdown = Math.max(0, timeLeft);
+                if (timeElapsed >= 5000) {
+                    if (player.inventory && player.inventory.some(i => i.id === 'runningTennis')) {
+                        player.speed /= 1.50;
+                    }
+                    dropHeldItem(player);
+                    if (player.isSpying) {
+                        player.isSpying = false;
+                    }
+                    player.role = 'zombie';
+                    const speedReductionPercent = Math.random() * (0.7 - 0.5) + 0.5;
+                    const speedLost = player.speed * speedReductionPercent;
+                    player.speed -= speedLost;
+                    player.originalSpeed -= speedLost;
+                    const otherZombies = Object.values(gameState.players).filter(p => p.role === 'zombie' && p.id !== player.id);
+                    if (otherZombies.length > 0) {
+                        const speedPerZombie = speedLost / otherZombies.length;
+                        otherZombies.forEach(zombie => {
+                            zombie.speed += speedPerZombie;
+                            zombie.originalSpeed += speedPerZombie;
+                        });
+                    }
+                    if(playerBody) Matter.Body.setPosition(playerBody, {x: WORLD_WIDTH / 2 + 500, y: WORLD_HEIGHT / 2});
+                    player.seaEnterTime = null;
+                    player.seaCountdown = null;
+                    io.emit('newMessage', { name: 'Server', text: `${player.name} drowned and became a zombie!` });
+                }
+            } else {
+                if (player.seaEnterTime !== null) {
+                    player.seaEnterTime = null;
+                    player.seaCountdown = null;
+                }
+            }
+        }
+    }
+    for (let i = gameState.arrows.length - 1; i >= 0; i--) {
+        const arrow = gameState.arrows[i];
+        if (arrow.hasHit) continue;
+        arrow.x += Math.cos(arrow.angle) * ARROW_SPEED;
+        arrow.y += Math.sin(arrow.angle) * ARROW_SPEED;
+        let hitDetected = false;
+        for (const playerId in gameState.players) {
+            const player = gameState.players[playerId];
+            if (arrow.ownerId === playerId || !player.physicalHitbox || player.isInDuct) continue;
+            const distSq = (player.physicalHitbox.cx - arrow.x)**2 + (player.physicalHitbox.cy - arrow.y)**2;
+            if (distSq < (player.physicalHitbox.radius)**2) {
+                player.knockbackVx += Math.cos(arrow.angle) * ARROW_KNOCKBACK_IMPULSE;
+                player.knockbackVy += Math.sin(arrow.angle) * ARROW_KNOCKBACK_IMPULSE;
+                arrow.hasHit = true;
+                hitDetected = true;
+                setTimeout(() => {
+                    gameState.arrows = gameState.arrows.filter(a => a.id !== arrow.id);
+                }, ARROW_LIFESPAN_AFTER_HIT);
                 break;
             }
         }
-        return true;
-    });
+        if (!hitDetected && (arrow.x < 0 || arrow.x > WORLD_WIDTH || arrow.y < 0 || arrow.y > WORLD_HEIGHT)) {
+            gameState.arrows.splice(i, 1);
+        }
+    }
+
+
     for (const ownerId in gameState.drones) {
         const drone = gameState.drones[ownerId];
         const player = gameState.players[ownerId];
         if (player && player.input.worldMouse) {
-            const targetX = player.input.worldMouse.x;
-            const targetY = player.input.worldMouse.y;
-            drone.x += (targetX - drone.x) * DRONE_FOLLOW_FACTOR;
-            drone.y += (targetY - drone.y) * DRONE_FOLLOW_FACTOR;
+            drone.x += (player.input.worldMouse.x - drone.x) * DRONE_FOLLOW_FACTOR;
+            drone.y += (player.input.worldMouse.y - drone.y) * DRONE_FOLLOW_FACTOR;
         }
     }
+
     for (let i = gameState.grenades.length - 1; i >= 0; i--) {
         const grenade = gameState.grenades[i];
-        if (Date.now() > grenade.explodeTime) {
-            for (const playerId in gameState.players) {
-                const player = gameState.players[playerId];
-                const dx = player.x + player.width / 2 - grenade.x;
-                const dy = player.y + player.height / 2 - grenade.y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
+        if (now > grenade.explodeTime) {
+            for (const player of Object.values(gameState.players)) {
+                const distance = Math.hypot(player.x - grenade.x, player.y - grenade.y);
                 if (distance < GRENADE_RADIUS) {
-                    const angle = Math.atan2(dy, dx);
                     const knockback = (1 - (distance / GRENADE_RADIUS)) * GRENADE_KNOCKBACK_IMPULSE;
+                    const angle = Math.atan2(player.y - grenade.y, player.x - grenade.x);
                     player.knockbackVx += Math.cos(angle) * knockback;
                     player.knockbackVy += Math.sin(angle) * knockback;
                 }
@@ -887,676 +550,73 @@ function updateGameState() {
             gameState.grenades.splice(i, 1);
         }
     }
-
-    for (let i = gameState.largeBalls.length - 1; i >= 0; i--) {
-        const ball = gameState.largeBalls[i];
-        ball.x += ball.vx;
-        ball.y += ball.vy;
-        ball.rotation += ball.angularVelocity;
-        let bounced = false;
-        if (ball.x - ball.radius < 0 || ball.x + ball.radius > WORLD_WIDTH) {
-            ball.vx *= -1;
-            ball.x = Math.max(ball.radius, Math.min(ball.x, WORLD_WIDTH - ball.radius));
-            bounced = true;
-        }
-        if (ball.y - ball.radius < 0 || ball.y + ball.radius > WORLD_HEIGHT) {
-            ball.vy *= -1;
-            ball.y = Math.max(ball.radius, Math.min(ball.y, WORLD_HEIGHT - ball.radius));
-            bounced = true;
-        }
-        const ballCircle = {
-            cx: ball.x,
-            cy: ball.y,
-            radius: ball.radius
-        };
-        for (const wall of allWalls) {
-            if (isCollidingCircleRect(ballCircle, wall)) {
-                const closestX = Math.max(wall.x, Math.min(ball.x, wall.x + wall.width));
-                const closestY = Math.max(wall.y, Math.min(ball.y, wall.y + wall.height));
-                const dx = ball.x - closestX;
-                const dy = ball.y - closestY;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-                const overlap = ball.radius - distance;
-                if (overlap > 0) {
-                    ball.x += (dx / distance) * overlap;
-                    ball.y += (dy / distance) * overlap;
-                }
-                const centerDx = ball.x - (wall.x + wall.width / 2);
-                const centerDy = ball.y - (wall.y + wall.height / 2);
-                const colDx = Math.abs(centerDx) - (wall.width / 2);
-                const colDy = Math.abs(centerDy) - (wall.height / 2);
-                if (colDx > colDy) {
-                    ball.vx *= -1;
-                } else {
-                    ball.vy *= -1;
-                }
-                bounced = true;
-                break;
-            }
-        }
-        const dynamicObstacles = [...gameState.box, ...gameState.furniture];
-        for (const obj of dynamicObstacles) {
-            const mtv = checkCollisionSAT_Circle_OBB(ballCircle, obj);
-            if (mtv) {
-                ball.x -= mtv.x;
-                ball.y -= mtv.y;
-
-                const mtvLength = Math.sqrt(mtv.x * mtv.x + mtv.y * mtv.y);
-                if (mtvLength > 0) {
-                    const normalX = mtv.x / mtvLength;
-                    const normalY = mtv.y / mtvLength;
-                    const velDotNormal = ball.vx * normalX + ball.vy * normalY;
-                    ball.vx -= 2 * velDotNormal * normalX;
-                    ball.vy -= 2 * velDotNormal * normalY;
-                    bounced = true;
-                }
-
-                if (!obj.isStatic) {
-                    const mass = getMass(obj);
-                    const impulseMagnitude = (LARGE_BALL_KNOCKBACK / mass) * 0.5;
-                    const ballSpeed = Math.sqrt(ball.vx * ball.vx + ball.vy * ball.vy) || 1;
-                    obj.vx += (ball.vx / ballSpeed) * impulseMagnitude;
-                    obj.vy += (ball.vy / ballSpeed) * impulseMagnitude;
-                }
-                break;
-            }
-        }
-
-        if (bounced) {
-            ball.wallBounces++;
-        }
-        if (ball.wallBounces >= LARGE_BALL_MAX_BOUNCES) {
-            gameState.largeBalls.splice(i, 1);
-            continue;
-        }
-        for (const playerId in gameState.players) {
-            const player = gameState.players[playerId];
-            if (player.isFlying || player.isInDuct) continue;
-            if (isCollidingCircleCircle(ballCircle, player.hitbox)) {
-                const dx = player.x + player.width / 2 - ball.x;
-                const dy = player.y + player.height / 2 - ball.y;
-                const angle = Math.atan2(dy, dx);
-                player.knockbackVx += Math.cos(angle) * LARGE_BALL_KNOCKBACK;
-                player.knockbackVy += Math.sin(angle) * LARGE_BALL_KNOCKBACK;
-            }
-        }
-    }
-
-    for (const id in gameState.players) {
-        const player = gameState.players[id];
-        if (player.inventory && player.inventory.some(i => i.id === 'Drum')) {
-            const drumRadius = 10;
-            const localX = player.width / 2 + 40;
-            const localY = 0;
-            const playerCenterX = player.x + player.width / 2;
-            const playerCenterY = player.y + player.height / 2;
-            const rot = player.rotation;
-            const hitbox_cx = playerCenterX + localX * Math.cos(rot) - localY * Math.sin(rot);
-            const hitbox_cy = playerCenterY + localX * Math.sin(rot) + localY * Math.cos(rot);
-            const drumCircleHitbox = {
-                cx: hitbox_cx,
-                cy: hitbox_cy,
-                radius: drumRadius
-            };
-            player.drumHitbox = drumCircleHitbox;
-            for (const obj of allCollidables) {
-                const mtv_drum_object = checkCollisionSAT_Circle_OBB(drumCircleHitbox, obj);
-                if (mtv_drum_object) {
-                    let isObjectTouchingWall = false;
-                    for (const wall of allWalls) {
-                        if (checkCollisionSAT(obj, wall)) {
-                            isObjectTouchingWall = true;
-                            break;
-                        }
-                    }
-                    if (isObjectTouchingWall) {
-                        obj.ignoreWallCollision = true;
-                    }
-                    const pushAngle = player.rotation;
-                    const mass = getMass(obj);
-                    const forceMagnitude = FORCE_DRUM_COLLISION_FORCE / mass;
-                    obj.vx += Math.cos(pushAngle) * forceMagnitude;
-                    obj.vy += Math.sin(pushAngle) * forceMagnitude;
-                    const contactVectorX = hitbox_cx - (obj.x + obj.width / 2);
-                    const contactVectorY = hitbox_cy - (obj.y + obj.height / 2);
-                    const torque = (contactVectorX * (Math.sin(pushAngle) * forceMagnitude) - contactVectorY * (Math.cos(pushAngle) * forceMagnitude)) * TORQUE_FACTOR;
-                    obj.angularVelocity += torque;
-                }
-            }
-        } else {
-            player.drumHitbox = null;
-        }
-    }
-    for (let i = 0; i < allCollidables.length; i++) {
-        const item1 = allCollidables[i];
-        for (let j = i + 1; j < allCollidables.length; j++) {
-            const item2 = allCollidables[j];
-            const mtv = checkCollisionSAT(item1, item2);
-            if (mtv) {
-                const m1 = getMass(item1);
-                const m2 = getMass(item2);
-                const totalMass = m1 + m2;
-                item1.x -= mtv.x * (m2 / totalMass);
-                item1.y -= mtv.y * (m2 / totalMass);
-                item2.x += mtv.x * (m1 / totalMass);
-                item2.y += mtv.y * (m1 / totalMass);
-                const relVelX = item2.vx - item1.vx;
-                const relVelY = item2.vy - item1.vy;
-                const mtvLength = Math.sqrt(mtv.x * mtv.x + mtv.y * mtv.y);
-                if (mtvLength > 0) {
-                    const normalX = mtv.x / mtvLength;
-                    const normalY = mtv.y / mtvLength;
-                    const velAlongNormal = relVelX * normalX + relVelY * normalY;
-                    if (velAlongNormal < 0) {
-                        const restitution = BOX_COLLISION_DAMPING;
-                        const invMass1 = 1 / m1;
-                        const invMass2 = 1 / m2;
-                        let jn = -(1 + restitution) * velAlongNormal / (invMass1 + invMass2);
-                        const impulseNormalX = jn * normalX;
-                        const impulseNormalY = jn * normalY;
-                        item1.vx -= impulseNormalX * invMass1;
-                        item1.vy -= impulseNormalY * invMass1;
-                        item2.vx += impulseNormalX * invMass2;
-                        item2.vy += impulseNormalY * invMass2;
-                        const tangentX = -normalY;
-                        const tangentY = normalX;
-                        const velAlongTangent = relVelX * tangentX + relVelY * tangentY;
-                        let jt = -velAlongTangent / (invMass1 + invMass2);
-                        const friction = BOX_SLIDE_FRICTION;
-                        if (Math.abs(jt) > Math.abs(jn * friction)) {
-                            jt = (jn * friction) * Math.sign(jt);
-                        }
-                        const impulseTangentX = jt * tangentX;
-                        const impulseTangentY = jt * tangentY;
-                        item1.vx -= impulseTangentX * invMass1;
-                        item1.vy -= impulseTangentY * invMass1;
-                        item2.vx += impulseTangentX * invMass2;
-                        item2.vy += impulseTangentY * invMass2;
-                    }
-                }
-            }
-        }
-        item1.x += item1.vx;
-        item1.y += item1.vy;
-        item1.rotation += item1.angularVelocity;
-        item1.vx *= BOX_FRICTION;
-        item1.vy *= BOX_FRICTION;
-        item1.angularVelocity *= ANGULAR_FRICTION;
-        const linearSpeedSq = item1.vx * item1.vx + item1.vy * item1.vy;
-        if (linearSpeedSq < SLEEP_THRESHOLD * SLEEP_THRESHOLD && Math.abs(item1.angularVelocity) < SLEEP_THRESHOLD) {
-            item1.vx = 0;
-            item1.vy = 0;
-            item1.angularVelocity = 0;
-        }
-        if (!item1.ignoreWallCollision) {
-            const regularWalls = [...gameState.house.walls, ...gameState.garage.walls, ...gameState.obstacles];
-            const hardWalls = gameState.hardWalls || [];
-            for (const obstacle of regularWalls) {
-                const mtv = checkCollisionSAT(item1, obstacle);
-                if (mtv) {
-                    item1.vx -= mtv.x * WALL_PUSH_OUT_FORCE;
-                    item1.vy -= mtv.y * WALL_PUSH_OUT_FORCE;
-                    const dot = item1.vx * mtv.x + item1.vy * mtv.y;
-                    if (dot < 0) {
-                        item1.vx *= 0.08;
-                        item1.vy *= 0.08;
-                    }
-                }
-            }
-            for (const wall of hardWalls) {
-                const mtv = checkCollisionSAT(item1, wall);
-                if (mtv) {
-                    item1.x -= mtv.x;
-                    item1.y -= mtv.y;
-                    const mtvLength = Math.sqrt(mtv.x * mtv.x + mtv.y * mtv.y);
-                    if (mtvLength > 0) {
-                        const normalX = mtv.x / mtvLength;
-                        const normalY = mtv.y / mtvLength;
-                        const velDotNormal = item1.vx * normalX + item1.vy * normalY;
-                        if (velDotNormal > 0) {
-                            const restitution = BOX_COLLISION_DAMPING;
-                            const impulse = -(1 + restitution) * velDotNormal;
-                            item1.vx += impulse * normalX;
-                            item1.vy += impulse * normalY;
-                            item1.angularVelocity *= 0.5;
-                        }
-                    }
-                }
-            }
-        }
-        item1.ignoreWallCollision = false;
-        item1.x = Math.max(0, Math.min(item1.x, WORLD_WIDTH - item1.width));
-        item1.y = Math.max(0, Math.min(item1.y, WORLD_HEIGHT - item1.height));
-    }
-    const playerIds = Object.keys(gameState.players);
-    for (const id of playerIds) {
-        const player = gameState.players[id];
-        if (player.isTrapped) {
-            if (Date.now() > player.trappedUntil) {
-                player.isTrapped = false;
-            } else {
-                continue;
-            }
-        }
-        if (player.isInvisible) {
-            let cloakBroken = false;
-            for (const otherId in gameState.players) {
-                if (id === otherId) continue;
-                const otherPlayer = gameState.players[otherId];
-                if (otherPlayer.role === 'zombie') {
-                    const dx = player.x - otherPlayer.x;
-                    const dy = player.y - otherPlayer.y;
-                    const distance = Math.sqrt(dx * dx + dy * dy);
-                    if (distance < INVISIBILITY_CLOAK_BREAK_DISTANCE) {
-                        player.isInvisible = false;
-                        player.inventory = player.inventory.filter(i => i.id !== 'invisibilityCloak');
-                        io.emit('newMessage', {
-                            name: 'Server',
-                            text: `${player.name}'s cloak was broken!`
-                        });
-                        cloakBroken = true;
-                        break;
-                    }
-                }
-            }
-            if (cloakBroken) continue;
-        }
-        if (player.isFlying) {
-            if (player.input.movement.up) {
-                player.y -= player.speed;
-            }
-            if (player.input.movement.down) {
-                player.y += player.speed;
-            }
-            if (player.input.movement.left) {
-                player.x -= player.speed;
-            }
-            if (player.input.movement.right) {
-                player.x += player.speed;
-            }
-            player.x = Math.max(0, Math.min(player.x, WORLD_WIDTH - player.width));
-            player.y = Math.max(0, Math.min(player.y, WORLD_HEIGHT - player.height));
-            continue;
-        }
-        player.hitbox = {
-            cx: player.x + player.width / 2,
-            cy: player.y + player.height / 2,
-            radius: player.width / 2
-        };
-        let hitboxRadius = player.width / 2;
-        if (player.role === 'human' || player.role === 'neutral') {
-            hitboxRadius *= 0.3;
-        } else if (player.role === 'zombie') {
-            hitboxRadius *= 0.6;
-        }
-        player.physicalHitbox = {
-            cx: player.x + player.width / 2,
-            cy: player.y + player.height / 2,
-            radius: hitboxRadius
-        };
-        player.infectionHitbox = {
-            cx: player.x + player.width / 2,
-            cy: player.y + player.height / 2,
-            radius: player.width * 0.2
-        };
-        if (player.inventory && player.inventory.some(i => i.id === 'skateboard')) {
-            const originalX = player.x;
-            const originalY = player.y;
-            const skateSpeed = SKATEBOARD_SPEED_BOOST;
-            const angle = player.rotation;
-            player.x += Math.cos(angle) * skateSpeed;
-            player.physicalHitbox.cx = player.x + (player.width / 2);
-            let collidedX = false;
-            for (const wall of allWalls) {
-                if (isCollidingCircleRect(player.physicalHitbox, wall)) {
-                    collidedX = true;
-                }
-            }
-            if (player.x < 0 || player.x + player.width > WORLD_WIDTH) {
-                collidedX = true;
-            }
-            if (collidedX) {
-                player.x = originalX;
-                player.physicalHitbox.cx = player.x + (player.width / 2);
-            }
-            player.y += Math.sin(angle) * skateSpeed;
-            player.physicalHitbox.cy = player.y + (player.height / 2);
-            let collidedY = false;
-            for (const wall of allWalls) {
-                if (isCollidingCircleRect(player.physicalHitbox, wall)) {
-                    collidedY = true;
-                }
-            }
-            if (player.y < 0 || player.y + player.height > WORLD_HEIGHT) {
-                collidedY = true;
-            }
-            if (collidedY) {
-                player.y = originalY;
-                player.physicalHitbox.cy = player.y + (player.height / 2);
-            }
-        } else {
-            let accelX = 0;
-            let accelY = 0;
-            if (player.input.movement.left) accelX -= 1;
-            if (player.input.movement.right) accelX += 1;
-            if (player.input.movement.up) accelY -= 1;
-            if (player.input.movement.down) accelY += 1;
-            if (accelX !== 0 || accelY !== 0) {
-                const mag = Math.sqrt(accelX * accelX + accelY * accelY);
-                player.vx += (accelX / mag) * PLAYER_ACCELERATION;
-                player.vy += (accelY / mag) * PLAYER_ACCELERATION;
-            }
-            player.vx *= PLAYER_FRICTION;
-            player.vy *= PLAYER_FRICTION;
-            let effectiveSpeed = player.speed;
-            if (player.role === 'zombie') {
-                effectiveSpeed *= ZOMBIE_SPEED_BOOST;
-            }
-            if (player.carryingObject) {
-                effectiveSpeed *= 0.7;
-            }
-            const maxSpeedSq = effectiveSpeed * effectiveSpeed;
-            const currentSpeedSq = player.vx * player.vx + player.vy * player.vy;
-            if (currentSpeedSq > maxSpeedSq) {
-                const currentSpeed = Math.sqrt(currentSpeedSq);
-                player.vx = (player.vx / currentSpeed) * effectiveSpeed;
-                player.vy = (player.vy / currentSpeed) * effectiveSpeed;
-            }
-            player.x += player.vx;
-            player.y += player.vy;
-        }
-        player.x += player.knockbackVx;
-        player.y += player.knockbackVy;
-        player.knockbackVx *= PLAYER_FRICTION;
-        player.knockbackVy *= PLAYER_FRICTION;
-        if (Math.abs(player.knockbackVx) < 0.01) player.knockbackVx = 0;
-        if (Math.abs(player.knockbackVy) < 0.01) player.knockbackVy = 0;
-        player.isHidden = false;
-        for (const sunshade of gameState.sunshades) {
-            if (isCollidingCircleRect(player.hitbox, sunshade)) {
-                player.isHidden = true;
-                break;
-            }
-        }
-        let totalMtvX = 0;
-        let totalMtvY = 0;
-        const playerPoly = {
-            x: player.physicalHitbox.cx - player.physicalHitbox.radius,
-            y: player.physicalHitbox.cy - player.physicalHitbox.radius,
-            width: player.physicalHitbox.radius * 2,
-            height: player.physicalHitbox.radius * 2,
-            rotation: 0
-        };
-        const allDynamicCollidables = [...gameState.box, ...gameState.furniture];
-        for (const item of allDynamicCollidables) {
-            const mtv = checkCollisionSAT(playerPoly, item);
-            if (mtv) {
-                if (item.isStatic) {
-                    player.x -= mtv.x;
-                    player.y -= mtv.y;
-                    continue;
-                }
-                totalMtvX -= mtv.x;
-                totalMtvY -= mtv.y;
-                if (player.inventory && player.inventory.some(i => i.id === 'skateboard')) {
-                    continue;
-                }
-                const isPushing = player.input.movement.up || player.input.movement.down || player.input.movement.left || player.input.movement.right;
-                if (isPushing) {
-                    let pushDirectionX = 0,
-                        pushDirectionY = 0;
-                    if (player.input.movement.up) {
-                        pushDirectionY -= 1;
-                    }
-                    if (player.input.movement.down) {
-                        pushDirectionY += 1;
-                    }
-                    if (player.input.movement.left) {
-                        pushDirectionX -= 1;
-                    }
-                    if (player.input.movement.right) {
-                        pushDirectionX += 1;
-                    }
-                    const magnitude = Math.sqrt(pushDirectionX * pushDirectionX + pushDirectionY * pushDirectionY);
-                    if (magnitude > 0) {
-                        pushDirectionX /= magnitude;
-                        pushDirectionY /= magnitude;
-                    }
-                    let pushMultiplier = 1;
-                    if (player.inventory && player.inventory.some(i => i.id === 'Drum')) {
-                        pushMultiplier = FORCE_DRUM_MULTIPLIER;
-                    }
-                    if (player.role === 'zombie') {
-                        pushMultiplier *= ZOMBIE_PUSH_MODIFIER;
-                    }
-                    const mass = getMass(item);
-                    let pushForceX = pushDirectionX * BOX_PUSH_FORCE * pushMultiplier / mass;
-                    let pushForceY = pushDirectionY * BOX_PUSH_FORCE * pushMultiplier / mass;
-                    item.vx += pushForceX;
-                    item.vy += pushForceY;
-                    let canApplyTorque = true;
-                    for (const wall of allWalls) {
-                        if (checkCollisionSAT(item, wall)) {
-                            canApplyTorque = false;
-                            break;
-                        }
-                    }
-                    if (canApplyTorque) {
-                        for (const otherItem of allCollidables) {
-                            if (item.uniqueId === otherItem.uniqueId) continue;
-                            if (checkCollisionSAT(item, otherItem)) {
-                                canApplyTorque = false;
-                                break;
-                            }
-                        }
-                    }
-                    if (canApplyTorque) {
-                        const contactVectorX = (player.x + player.width / 2) - (item.x + item.width / 2);
-                        const contactVectorY = (player.y + player.height / 2) - (item.y + item.height / 2);
-                        const torque = (contactVectorX * pushForceY - contactVectorY * pushForceX) * TORQUE_FACTOR;
-                        item.angularVelocity += torque;
-                    }
-                }
-            }
-        }
-        for (const wall of allWalls) {
-            const mtv = checkCollisionSAT(playerPoly, wall);
-            if (mtv) {
-                totalMtvX -= mtv.x;
-                totalMtvY -= mtv.y;
-            }
-        }
-        player.x += totalMtvX;
-        player.y += totalMtvY;
-        player.x = Math.max(0, Math.min(player.x, WORLD_WIDTH - player.width));
-        player.y = Math.max(0, Math.min(player.y, WORLD_HEIGHT - player.height));
-    }
-    for (let i = 0; i < playerIds.length; i++) {
-        for (let j = i + 1; j < playerIds.length; j++) {
-            const player1 = gameState.players[playerIds[i]];
-            const player2 = gameState.players[playerIds[j]];
-            if (player1 && player2 && isCollidingCircleCircle(player1.hitbox, player2.hitbox)) {
-                const dx = player2.hitbox.cx - player1.hitbox.cx;
-                const dy = player2.hitbox.cy - player1.hitbox.cy;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-                const overlap = (player1.hitbox.radius + player2.hitbox.radius) - distance;
-                if (overlap > 0) {
-                    if (distance > 0) {
-                        const pushX = (dx / distance) * (overlap / 2);
-                        const pushY = (dy / distance) * (overlap / 2);
-                        player1.x -= pushX;
-                        player1.y -= pushY;
-                        player2.x += pushX;
-                        player2.y += pushY;
-                    } else {
-                        player1.x -= 0.5;
-                        player2.x += 0.5;
-                    }
-                }
-            }
-        }
-    }
+    
     for (let i = gameState.traps.length - 1; i >= 0; i--) {
         const trap = gameState.traps[i];
-        let trapped = false;
-        for (const playerId in gameState.players) {
-            const player = gameState.players[playerId];
-            if (player.role === trap.target && !player.isTrapped && isColliding(player, trap)) {
+        for (const player of Object.values(gameState.players)) {
+            if (player.role === 'human' && !player.isTrapped && Math.hypot(player.x - trap.x, player.y - trap.y) < TRAP_SIZE) {
                 player.isTrapped = true;
-                player.trappedUntil = Date.now() + TRAP_DURATION;
-                io.emit('newMessage', {
-                    name: 'Server',
-                    text: `${player.name} stepped on a trap!`
-                });
-                trapped = true;
+                player.trappedUntil = now + TRAP_DURATION;
+                gameState.traps.splice(i, 1);
+                break; 
+            }
+        }
+    }
+
+    // <-- NOVO: Lógica de explosão da mina
+    for (let i = gameState.mines.length - 1; i >= 0; i--) {
+        const mine = gameState.mines[i];
+        let triggered = false;
+        let triggeringPlayer = null;
+
+        for (const player of Object.values(gameState.players)) {
+            if (Math.hypot((player.x + player.width / 2) - (mine.x + mine.width / 2), (player.y + player.height / 2) - (mine.y + mine.height / 2)) < MINE_SIZE) {
+                triggered = true;
+                triggeringPlayer = player;
                 break;
             }
         }
-        if (trapped) {
-            gameState.traps.splice(i, 1);
+
+        if (triggered) {
+            for (const player of Object.values(gameState.players)) {
+                const distance = Math.hypot((player.x + player.width / 2) - (mine.x + mine.width / 2), (player.y + player.height / 2) - (mine.y + mine.height / 2));
+
+                if (distance < MINE_EXPLOSION_RADIUS) {
+                    const angle = Math.atan2((player.y + player.height / 2) - (mine.y + mine.height / 2), (player.x + player.width / 2) - (mine.x + mine.width / 2));
+                    
+                    let knockbackForce;
+                    if (player.id === triggeringPlayer.id) {
+                        knockbackForce = MINE_PRIMARY_KNOCKBACK;
+                    } else {
+                        knockbackForce = MINE_SPLASH_KNOCKBACK * (1 - (distance / MINE_EXPLOSION_RADIUS));
+                    }
+
+                    player.knockbackVx += Math.cos(angle) * knockbackForce;
+                    player.knockbackVy += Math.sin(angle) * knockbackForce;
+                }
+            }
+            gameState.mines.splice(i, 1);
         }
     }
 
     const portalsByOwner = {};
     for (const portal of gameState.portals) {
-        if (!portalsByOwner[portal.ownerId]) {
-            portalsByOwner[portal.ownerId] = [];
-        }
+        if (!portalsByOwner[portal.ownerId]) portalsByOwner[portal.ownerId] = [];
         portalsByOwner[portal.ownerId].push(portal);
     }
     for (const ownerId in portalsByOwner) {
-        const ownerPortals = portalsByOwner[ownerId];
-        if (ownerPortals.length === 2) {
-            const [portalA, portalB] = ownerPortals;
-            for (const playerId in gameState.players) {
-                const player = gameState.players[playerId];
-                if ((player.role === 'human' || player.role === 'neutral') && !player.isFlying && !player.isInDuct && Date.now() > (player.portalCooldownUntil || 0)) {
-                    const playerHitbox = {
-                        x: player.x,
-                        y: player.y,
-                        width: player.width,
-                        height: player.height
-                    };
-                    if (isColliding(playerHitbox, portalA)) {
-                        player.x = portalB.x + (portalB.width / 2) - (player.width / 2);
-                        player.y = portalB.y + (portalB.height / 2) - (player.height / 2);
-                        player.portalCooldownUntil = Date.now() + PORTAL_COOLDOWN;
-                    } else if (isColliding(playerHitbox, portalB)) {
-                        player.x = portalA.x + (portalA.width / 2) - (player.width / 2);
-                        player.y = portalA.y + (portalA.height / 2) - (player.height / 2);
-                        player.portalCooldownUntil = Date.now() + PORTAL_COOLDOWN;
-                    }
-                }
-            }
-        }
-    }
-    if (gameState.gamePhase === 'running') {
-        const players = gameState.players;
-        for (const id1 of playerIds) {
-            const player1 = players[id1];
-            if (player1.role === 'zombie') {
-                for (const id2 of playerIds) {
-                    if (id1 === id2) continue;
-                    const player2 = players[id2];
-                    if ((player2.role === 'human' || player2.role === 'neutral' || player2.isSpying) && isCollidingCircleCircle(player1.hitbox, player2.hitbox) && !player2.isFlying && !player2.isTrapped) {
-                        if (player2.activeAbility === 'illusionist' && player2.illusionistPassiveAvailable) {
-                            player2.illusionistPassiveAvailable = false;
-                            io.emit('newMessage', {
-                                name: 'Server',
-                                text: `${player2.name} used their extra life and was not infected!`
-                            });
-                            continue;
-                        }
-                        if (player2.activeAbility === 'butterfly' && !player2.butterflyUsed) {
-                            player2.butterflyUsed = true;
-                            player2.isFlying = true;
-                            player2.originalSpeed = player2.speed;
-                            player2.speed = BUTTERFLY_SPEED;
-                            setTimeout(() => {
-                                if (gameState.players[id2]) {
-                                    const p = gameState.players[id2];
-                                    p.isFlying = false;
-                                    p.speed = p.originalSpeed;
-                                }
-                            }, BUTTERFLY_DURATION);
-                            io.emit('newMessage', {
-                                name: 'Server',
-                                text: `${player2.name} used the Butterfly to escape!`
-                            });
-                            continue;
-                        }
-                        if (player2.hasAntidoteEffect) {
-                            player2.hasAntidoteEffect = false;
-                            if (Math.random() < 0.75) {
-                                io.emit('newMessage', {
-                                    name: 'Server',
-                                    text: `${player2.name}'s antidote resisted the infection!`
-                                });
-                                continue;
-                            } else {
-                                io.emit('newMessage', {
-                                    name: 'Server',
-                                    text: `${player2.name}'s antidote failed!`
-                                });
-                            }
-                        }
-                        dropHeldItem(player2);
-                        const humanSpeed = player2.speed;
-                        const humanWidth = player2.width;
-                        const humanHeight = player2.height;
-                        if (player2.isSpying) {
-                            player2.isSpying = false;
-                        }
-                        player2.role = 'zombie';
-                        player2.speed = humanSpeed;
-                        player2.width = humanWidth;
-                        player2.height = humanHeight;
-                        const speedStolen = player2.speed * 0.25;
-                        player2.speed = Math.max(2, player2.speed - speedStolen);
-                        player1.speed = Math.min(MAX_PLAYER_SPEED, player1.speed + speedStolen);
-                        const coinReward = 10;
-                        player1.coins += coinReward;
-                        console.log(`${player2.name} has been infected!`);
-                        io.emit('newMessage', {
-                            name: 'Server',
-                            text: `${player2.name} has been infected!`
-                        });
-                    }
-                }
-            }
-            for (let i = gameState.arrows.length - 1; i >= 0; i--) {
-                const arrow = gameState.arrows[i];
-                if (arrow.hasHit) continue;
-                arrow.x += Math.cos(arrow.angle) * ARROW_SPEED;
-                arrow.y += Math.sin(arrow.angle) * ARROW_SPEED;
-                let hitDetected = false;
-                for (const playerId in gameState.players) {
-                    const player = gameState.players[playerId];
-                    if (arrow.ownerId === playerId || !player.hitbox || player.isInDuct) continue;
-                    const arrowHitbox = {
-                        x: arrow.x,
-                        y: arrow.y,
-                        width: arrow.width,
-                        height: arrow.height
-                    };
-                    if (isCollidingCircleRect(player.hitbox, arrowHitbox)) {
-                        player.knockbackVx += Math.cos(arrow.angle) * ARROW_KNOCKBACK_IMPULSE;
-                        player.knockbackVy += Math.sin(arrow.angle) * ARROW_KNOCKBACK_IMPULSE;
-                        arrow.hasHit = true;
-                        hitDetected = true;
-                        const arrowIdToRemove = arrow.id;
-                        setTimeout(() => {
-                            const index = gameState.arrows.findIndex(a => a.id === arrowIdToRemove);
-                            if (index !== -1) {
-                                gameState.arrows.splice(index, 1);
-                            }
-                        }, ARROW_LIFESPAN_AFTER_HIT);
-                        break;
-                    }
-                }
-                if (!hitDetected) {
-                    if (arrow.x < 0 || arrow.x > WORLD_WIDTH || arrow.y < 0 || arrow.y > WORLD_HEIGHT) {
-                        gameState.arrows.splice(i, 1);
+        if (portalsByOwner[ownerId].length === 2) {
+            const [portalA, portalB] = portalsByOwner[ownerId];
+            for (const player of Object.values(gameState.players)) {
+                if (now > (player.portalCooldownUntil || 0)) {
+                    const playerBody = world.bodies.find(b => b.playerId === player.id);
+                    if (!playerBody) continue;
+                    if (Math.hypot(playerBody.position.x - portalA.x, playerBody.position.y - portalA.y) < PORTAL_SIZE / 2) {
+                        Matter.Body.setPosition(playerBody, { x: portalB.x, y: portalB.y });
+                        player.portalCooldownUntil = now + PORTAL_COOLDOWN;
+                    } else if (Math.hypot(playerBody.position.x - portalB.x, playerBody.position.y - portalB.y) < PORTAL_SIZE / 2) {
+                        Matter.Body.setPosition(playerBody, { x: portalA.x, y: portalA.y });
+                        player.portalCooldownUntil = now + PORTAL_COOLDOWN;
                     }
                 }
             }
@@ -1564,472 +624,423 @@ function updateGameState() {
     }
 }
 
-// =================================================================
-// SOCKET.IO HANDLERS
-// =================================================================
+function setupCollisionEvents() {
+    Matter.Events.on(engine, 'collisionStart', (event) => {
+        for (const pair of event.pairs) {
+            let ball, other;
+            if (pair.bodyA.label === 'largeBall') { ball = pair.bodyA; other = pair.bodyB; }
+            if (pair.bodyB.label === 'largeBall') { ball = pair.bodyB; other = pair.bodyA; }
+            
+            if (ball && other) {
+                if (other.label === 'wall') ball.bounces = (ball.bounces || 0) + 1;
+                
+                if (other.label === 'player') {
+                    const player = gameState.players[other.playerId];
+                    if(player){
+                        player.draggedBy = ball.uniqueId;
+                        player.draggedUntil = Date.now() + 200;
+                    }
+                }
+
+                if (ball.bounces >= LARGE_BALL_MAX_BOUNCES) {
+                    Matter.World.remove(world, ball);
+                    gameState.largeBalls = gameState.largeBalls.filter(b => b.uniqueId !== ball.uniqueId);
+                }
+            }
+        }
+    });
+
+    Matter.Events.on(engine, 'collisionActive', (event) => {
+        for (const pair of event.pairs) {
+            let playerBody, objectBody;
+            if (pair.bodyA.label === 'player' && pair.bodyB.label === 'furniture') { playerBody = pair.bodyA; objectBody = pair.bodyB; }
+            if (pair.bodyB.label === 'player' && pair.bodyA.label === 'furniture') { playerBody = pair.bodyB; objectBody = pair.bodyA; }
+            
+            if (playerBody && objectBody && !objectBody.isStatic) {
+                const player = gameState.players[playerBody.playerId];
+                if (player && player.input.movement && (player.input.movement.up || player.input.movement.down || player.input.movement.left || player.input.movement.right)) {
+                    let forceMagnitude = BOX_PUSH_FORCE;
+                    if (player.inventory.some(i => i.id === 'normalGlove')) forceMagnitude *= FORCE_NORMAL_GLOVE_MULTIPLIER;
+                    if (player.role === 'zombie') forceMagnitude *= ZOMBIE_PUSH_MODIFIER;
+                    
+                    const forceDirection = Matter.Vector.sub(objectBody.position, playerBody.position);
+                    if (Matter.Vector.magnitude(forceDirection) > 0) {
+                        const force = Matter.Vector.mult(Matter.Vector.normalise(forceDirection), forceMagnitude);
+                        const contactPoint = pair.collision.supports[0] || objectBody.position;
+                        Matter.Body.applyForce(objectBody, contactPoint, force);
+                    }
+                }
+            }
+
+            let pBody1, pBody2;
+            if (pair.bodyA.label === 'player' && pair.bodyB.label === 'player') { pBody1 = pair.bodyA; pBody2 = pair.bodyB; }
+            
+            if (pBody1 && pBody2) {
+                const player1 = gameState.players[pBody1.playerId];
+                const player2 = gameState.players[pBody2.playerId];
+                if (!player1 || !player2) continue;
+
+                let zombie, human;
+                if (player1.role === 'zombie' && player2.role === 'human') { zombie = player1; human = player2; }
+                if (player2.role === 'zombie' && player1.role === 'human') { zombie = player2; human = player1; }
+
+                if (zombie && human && !human.isFlying && !human.isTrapped) {
+                    const shieldItem = human.inventory.find(i => i && i.id === 'shield');
+                    if (shieldItem) {
+                        const now = Date.now();
+                        if (!shieldItem.lastHitTime || now > shieldItem.lastHitTime + 500) {
+                            shieldItem.lastHitTime = now;
+                            shieldItem.hits = (shieldItem.hits || 0) + 1;
+                            if (shieldItem.hits >= 3) {
+                                human.inventory = human.inventory.filter(i => i.id !== 'shield');
+                            }
+                        }
+                        return;
+                    }
+                    
+                    if (isCollidingCircleCircle(zombie.physicalHitbox, human.physicalHitbox)) {
+                        if (human.activeFunction === 'butterfly' && !human.butterflyUsed) {
+                            human.butterflyUsed = true;
+                            human.isFlying = true;
+                            const pBody = world.bodies.find(b => b.playerId === human.id);
+                            if (pBody) pBody.collisionFilter.mask = 0;
+                            setTimeout(() => { 
+                                if(gameState.players[human.id]) {
+                                    gameState.players[human.id].isFlying = false;
+                                    if (pBody) pBody.collisionFilter.mask = 0xFFFFFFFF;
+                                }
+                            }, BUTTERFLY_DURATION);
+                            continue;
+                        }
+                        if (human.hasAntidoteEffect) {
+                            human.hasAntidoteEffect = false;
+                            if (Math.random() < 0.75) continue;
+                        }
+                        if (human.inventory.some(i => i.id === 'runningTennis')) {
+                            human.speed /= 1.50;
+                            human.originalSpeed /= 1.50;
+                        }
+                        dropHeldItem(human);
+                        if (human.isSpying) human.isSpying = false;
+                        
+                        const percent = (Math.random() * (0.7 - 0.6) + 0.6);
+                        const gemsLost = human.gems * percent;
+                        const speedLost = (human.speed - ZOMBIE_MIN_SPEED) * percent;
+                        const sizeLost = (human.width - INITIAL_PLAYER_SIZE) * percent;
+
+                        human.gems -= gemsLost;
+                        human.speed -= speedLost;
+                        human.width -= sizeLost;
+                        human.height = human.width * 1.5;
+
+                        zombie.gems += gemsLost;
+                        zombie.speed += speedLost;
+                        zombie.width += sizeLost;
+                        zombie.height = zombie.width * 1.5;
+                        
+                        human.role = 'zombie';
+                        io.emit('newMessage', { name: 'Server', text: `${human.name} has been infected!`, color: '#ff4d4d' });
+                        
+                        const oldBody = world.bodies.find(b => b.playerId === human.id);
+                        if (oldBody) {
+                            const { position, velocity } = oldBody;
+                            Matter.World.remove(world, oldBody);
+                            const newBody = createPlayerBody(human);
+                            Matter.Body.setPosition(newBody, position);
+                            Matter.Body.setVelocity(newBody, velocity);
+                            Matter.World.add(world, newBody);
+                        }
+                    }
+                }
+            }
+
+            let ball, other;
+            if (pair.bodyA.label === 'largeBall' && (pair.bodyB.label === 'player' || pair.bodyB.label === 'furniture')) { ball = pair.bodyA; other = pair.bodyB; }
+            if (pair.bodyB.label === 'largeBall' && (pair.bodyA.label === 'player' || pair.bodyA.label === 'furniture')) { ball = pair.bodyB; other = pair.bodyA; }
+            
+            if (ball && other && !other.isStatic) {
+                const dragForceMagnitude = LARGE_BALL_PLAYER_KNOCKBACK / 10; 
+                const dragForce = Matter.Vector.mult(Matter.Vector.normalise(ball.velocity), dragForceMagnitude);
+                if (isFinite(dragForce.x) && isFinite(dragForce.y)) {
+                    Matter.Body.applyForce(other, other.position, dragForce);
+                }
+            }
+        }
+    });
+}
+
 io.on('connection', (socket) => {
     console.log('New player connected:', socket.id);
     createNewPlayer(socket);
+
     socket.on('setNickname', (nickname) => {
         const player = gameState.players[socket.id];
-        if (player && nickname) {
-            const sanitizedName = String(nickname).trim().substring(0, 10);
-            if (sanitizedName) {
-                player.name = sanitizedName;
-                io.emit('newMessage', {
-                    name: 'Server',
-                    text: `${player.name} has joined the game.`
-                });
-            }
-        }
+        if (player && nickname) player.name = String(nickname).trim().substring(0, 10) || player.name;
     });
+
     socket.on('playerInput', (inputData) => {
         const player = gameState.players[socket.id];
-        if (player) {
+        if (player && player.input) {
             player.input.movement = inputData.movement;
             player.rotation = inputData.rotation;
-            if (inputData.worldMouse) {
-                player.input.worldMouse = inputData.worldMouse;
-            }
+            if (inputData.worldMouse) player.input.worldMouse = inputData.worldMouse;
         }
     });
-    socket.on('chooseAbility', (ability) => {
+    
+    socket.on('rotateCarriedObject', (direction) => {
         const player = gameState.players[socket.id];
-        if (gameState.gamePhase !== 'running') return;
-        const cost = ABILITY_COSTS[ability];
-        if (player && player.activeAbility === ' ' && cost !== undefined && player.coins >= cost) {
-            if (gameState.takenAbilities.includes(ability)) return;
-            player.coins -= cost;
-            player.activeAbility = ability;
-            gameState.takenAbilities.push(ability);
-            if (ability === 'archer') {
-                player.arrowAmmo = 200;
-            }
+        if (player && player.carryingObject) {
+            const amount = 0.5 * (direction === 'left' ? -1 : 1);
+            player.carryingObject.rotation += amount;
         }
     });
-    socket.on('chooseNeutralAbility', (abilityId) => {
+
+    socket.on('chooseFunction', (func) => {
         const player = gameState.players[socket.id];
-        if (player && player.role === 'neutral' && !player.neutralAbility) {
-            if (abilityId === 'troll') {
-                player.neutralAbility = 'troll';
-                player.inventory = [{
-                    id: 'cannon',
-                    cooldownUntil: 0
-                }];
-                player.selectedSlot = 0;
-                io.emit('newMessage', {
-                    name: 'Server',
-                    text: `${player.name} has chosen the TROLL ability!`,
-                    color: '#f1c40f'
-                });
-            }
+        const cost = FUNCTION_COSTS[func];
+        if (gameState.gamePhase === 'running' && player && player.activeFunction === ' ' && cost !== undefined && player.gems >= cost && !gameState.takenFunctions.includes(func)) {
+            player.gems -= cost; player.activeFunction = func;
+            gameState.takenFunctions.push(func);
         }
     });
+    
     socket.on('buyZombieAbility', (abilityId) => {
         const player = gameState.players[socket.id];
         const cost = ZOMBIE_ABILITY_COSTS[abilityId];
-        if (player && player.role === 'zombie' && !player.zombieAbility && cost !== undefined && player.coins >= cost) {
-            player.coins -= cost;
+        if (player && player.role === 'zombie' && !player.zombieAbility && cost !== undefined && player.gems >= cost) {
+            player.gems -= cost;
             player.zombieAbility = abilityId;
             if (abilityId === 'trap') {
                 player.trapsLeft = 1;
+            } else if (abilityId === 'mine') { // <-- NOVO
+                player.minesLeft = 2;
             }
         }
     });
+
     socket.on('buyItem', (itemId) => {
         const player = gameState.players[socket.id];
-        if (!player || !Array.isArray(player.inventory) || player.inventory.length >= player.inventorySlots) return;
-        let cost;
-        let itemData;
+        if (!player) return;
+        const currentItemCount = player.inventory.filter(i => i && i.id !== 'card').length;
+        if (currentItemCount >= player.inventorySlots) return;
+
+        let cost, itemData;
         switch (itemId) {
-            case "Drum":
-                cost = 100;
-                itemData = {
-                    id: 'Drum'
-                };
-                break;
-            case 'antidote':
-                cost = 20;
-                itemData = {
-                    id: 'antidote'
-                };
-                break;
-            case 'zoom':
-                cost = 150;
-                itemData = {
-                    id: 'zoom'
-                };
-                break;
+            case "normalGlove": cost = 100; itemData = { id: 'normalGlove' }; break;
+            case 'antidote': cost = 20; itemData = { id: 'antidote' }; break;
+            case 'shield': cost = 200; itemData = { id: 'shield', hits: 0 }; break;
         }
-        if (cost && player.coins >= cost) {
-            player.coins -= cost;
-            player.inventory.push(itemData);
-            io.emit('newMessage', {
-                name: 'Server',
-                text: `${player.name} bought ${itemId}!`
-            });
+        if (cost && player.gems >= cost) {
+            player.gems -= cost; player.inventory.push(itemData);
         }
     });
+
     socket.on('buyRareItem', (itemId) => {
         const player = gameState.players[socket.id];
-        if (!player || !Array.isArray(player.inventory) || !player.inventory.some(i => i.id === 'card')) {
-            return;
-        }
+        if (!player || !player.inventory.some(i => i.id === 'card')) return;
+        if (itemId !== 'inventoryUpgrade' && player.inventory.filter(i => i && i.id !== 'card').length >= player.inventorySlots) return;
 
-        let cost;
-        let itemData;
+        let cost, itemData;
         switch (itemId) {
-            case 'inventoryUpgrade':
-                cost = 500;
-                break;
-            case 'skateboard':
-                cost = 100;
-                itemData = { ...gameState.skateboard,
-                    ownerId: player.id
-                };
-                break;
-            case 'drone':
-                cost = 200;
-                itemData = {
-                    id: 'drone',
-                    ammo: DRONE_MAX_AMMO
-                };
-                break;
-            case 'invisibilityCloak':
-                cost = 200;
-                itemData = {
-                    id: 'invisibilityCloak',
-                    active: false
-                };
-                break;
-            case "gravityGlove":
-                cost = 100;
-                itemData = {
-                    id: 'gravityGlove',
-                    uses: 2
-                };
-                break;
-            case 'portals':
-                cost = 100;
-                itemData = {
-                    id: 'portals'
-                };
-                break;
+            case 'inventoryUpgrade': cost = 500; break;
+            case 'skateboard': cost = 100; itemData = { ...gameState.skateboard, ownerId: player.id }; break;
+            case 'drone': cost = 200; itemData = { id: 'drone', ammo: DRONE_MAX_AMMO }; break;
+            case 'invisibilityCloak': cost = 200; itemData = { id: 'invisibilityCloak', active: false }; break;
+            case "gravityGlove": cost = 100; itemData = { id: 'gravityGlove', uses: 2 }; break;
+            case 'portals': cost = 100; itemData = { id: 'portals' }; break;
+            case 'cannon': cost = 500; itemData = { id: 'cannon', cooldownUntil: 0 }; break;
+            case 'bow': cost = 200; itemData = { id: 'bow', ammo: 200 }; break;
         }
 
-        if (cost && player.coins >= cost) {
-            player.coins -= cost;
-            player.inventory = player.inventory.filter(i => i.id !== 'card');
-
+        if (cost && player.gems >= cost) {
+            player.gems -= cost;
             if (itemId === 'inventoryUpgrade') {
-                player.hasInventoryUpgrade = true;
-                player.inventorySlots = 2;
-            } else {
-                player.inventory.push(itemData);
-            }
-
+                player.hasInventoryUpgrade = true; player.inventorySlots = 2;
+            } else { player.inventory.push(itemData); }
             if (itemId === 'skateboard') {
-                gameState.skateboard.ownerId = player.id;
-                gameState.skateboard.spawned = false;
+                gameState.skateboard.ownerId = player.id; gameState.skateboard.spawned = false;
             } else if (itemId === 'drone') {
-                gameState.drones[player.id] = {
-                    ownerId: player.id,
-                    x: player.x,
-                    y: player.y,
-                    ammo: DRONE_MAX_AMMO,
-                };
+                gameState.drones[player.id] = { ownerId: player.id, x: player.x, y: player.y, ammo: DRONE_MAX_AMMO };
             }
-            io.emit('newMessage', {
-                name: 'Server',
-                text: `${player.name} used the ATM to buy ${itemId}!`
-            });
+            player.inventory = player.inventory.filter(i => i.id !== 'card');
         }
     });
+
     socket.on('playerAction', (actionData) => {
         const player = gameState.players[socket.id];
         if (!player) return;
+        const now = Date.now();
         switch (actionData.type) {
             case 'use_antidote':
                 const antidote = player.inventory.find(i => i.id === 'antidote');
                 if (antidote) {
                     player.inventory = player.inventory.filter(i => i.id !== 'antidote');
                     player.hasAntidoteEffect = true;
-                    io.emit('newMessage', {
-                        name: 'Server',
-                        text: `${player.name} has consumed the antidote.`
-                    });
                 }
                 break;
             case 'place_portal':
-                if (player.inventory.some(i => i.id === 'portals')) {
-                    const myPortals = gameState.portals.filter(p => p.ownerId === player.id);
-                    if (myPortals.length < 2) {
-                        gameState.portals.push({
-                            ownerId: player.id,
-                            x: player.x,
-                            y: player.y,
-                            width: PORTAL_SIZE,
-                            height: PORTAL_SIZE,
-                        });
-                    }
-                }
-                break;
-            case 'troll_fire_cannon':
-                if (player.role === 'neutral' && player.neutralAbility === 'troll' && player.inventory && player.selectedSlot !== undefined) {
-                    const item = player.inventory[player.selectedSlot];
-                    if (item && item.id === 'cannon' && Date.now() > (item.cooldownUntil || 0)) {
-                        item.cooldownUntil = Date.now() + CANNON_COOLDOWN;
-                        const spawnX = player.x + player.width / 2 + Math.cos(player.rotation) * CANNON_FRONT_OFFSET;
-                        const spawnY = player.y + player.height / 2 + Math.sin(player.rotation) * CANNON_FRONT_OFFSET;
-                        gameState.largeBalls.push({
-                            id: `lb_${nextUniqueObjectId++}`,
-                            ownerId: player.id,
-                            x: spawnX,
-                            y: spawnY,
-                            vx: Math.cos(player.rotation) * LARGE_BALL_SPEED,
-                            vy: Math.sin(player.rotation) * LARGE_BALL_SPEED,
-                            radius: LARGE_BALL_RADIUS,
-                            wallBounces: 0,
-                            rotation: 0,
-                            angularVelocity: 0.1
-                        });
-                    }
+                if (player.inventory.some(i => i.id === 'portals') && gameState.portals.filter(p => p.ownerId === player.id).length < 2) {
+                    gameState.portals.push({ ownerId: player.id, x: player.x, y: player.y, width: PORTAL_SIZE, height: 80 });
                 }
                 break;
             case 'select_slot':
-                if (player.role === 'neutral') {
+                if (player.inventorySlots > 1) {
                     const slotIndex = actionData.slot;
-                    if (slotIndex === 0) {
-                        player.selectedSlot = slotIndex;
-                    }
+                    if (slotIndex >= 0 && slotIndex < player.inventorySlots) player.selectedSlot = slotIndex;
                 }
                 break;
             case 'zombie_teleport':
-                if (player.role === 'zombie' && Date.now() > (player.teleportCooldownUntil || 0)) {
-                    player.x = WORLD_WIDTH / 2 + 500;
-                    player.y = WORLD_HEIGHT / 2;
-                    player.teleportCooldownUntil = Date.now() + 60000;
+                if (player.role === 'zombie' && now > (player.teleportCooldownUntil || 0)) {
+                    const playerBody = world.bodies.find(b => b.playerId === player.id);
+                    if(playerBody) Matter.Body.setPosition(playerBody, {x: WORLD_WIDTH / 2 + 500, y: WORLD_HEIGHT / 2});
+                    player.teleportCooldownUntil = now + 60000;
                 }
                 break;
-            case 'zombie_item':
+            case 'zombie_item': // <-- NOVO: Lógica para colocar a mina
                 if (player.role === 'zombie' && player.zombieAbility === 'trap' && player.trapsLeft > 0) {
                     player.trapsLeft--;
-                    gameState.traps.push({
-                        id: nextTrapId++,
+                    gameState.traps.push({ id: nextTrapId++, x: player.x, y: player.y, width: TRAP_SIZE, height: TRAP_SIZE, target: 'human' });
+                } else if (player.role === 'zombie' && player.zombieAbility === 'mine' && player.minesLeft > 0) {
+                    player.minesLeft--;
+                    gameState.mines.push({
+                        id: `mine_${nextMineId++}`,
+                        ownerId: player.id,
                         x: player.x,
                         y: player.y,
-                        width: TRAP_SIZE,
-                        height: TRAP_SIZE,
-                        target: 'human'
+                        width: MINE_SIZE,
+                        height: MINE_SIZE,
                     });
                 }
                 break;
             case 'drop_grenade':
-                if (player.inventory.some(i => i.id === 'drone') && gameState.drones[player.id] && gameState.drones[player.id].ammo > 0) {
+                if (player.inventory.some(i => i.id === 'drone') && gameState.drones[player.id]?.ammo > 0) {
                     const drone = gameState.drones[player.id];
                     drone.ammo--;
-                    const droneItem = player.inventory.find(i => i.id === 'drone');
-                    if (droneItem) droneItem.ammo = drone.ammo;
-                    gameState.grenades.push({
-                        id: nextGrenadeId++,
-                        x: drone.x,
-                        y: drone.y,
-                        explodeTime: Date.now() + GRENADE_FUSE_TIME
-                    });
+                    player.inventory.find(i => i.id === 'drone').ammo = drone.ammo;
+                    gameState.grenades.push({ id: nextGrenadeId++, x: drone.x, y: drone.y, explodeTime: now + GRENADE_FUSE_TIME });
                 }
                 break;
             case 'primary_action':
-                if (player.activeAbility === 'archer' && player.arrowAmmo > 0 && (Date.now() - (player.archerLastShotTime || 0) > 1000)) {
-                    player.archerLastShotTime = Date.now();
-                    player.arrowAmmo--;
+                const selectedItem = player.inventory[player.selectedSlot];
+                if (selectedItem?.id === 'bow' && selectedItem.ammo > 0 && (now > (player.archerLastShotTime || 0) + 1000)) {
+                    player.archerLastShotTime = now;
+                    selectedItem.ammo--;
                     gameState.arrows.push({
-                        id: nextArrowId++,
-                        x: player.x + player.width / 2,
-                        y: player.y + player.height / 2,
-                        width: 30,
-                        height: 30,
-                        color: 'red',
-                        angle: player.rotation,
-                        ownerId: player.id,
-                        hasHit: false
+                        id: nextArrowId++, x: player.x + player.width / 2, y: player.y + player.height / 2, width: 30, height: 30,
+                        color: 'red', angle: player.rotation, ownerId: player.id, hasHit: false
                     });
+                } else if (selectedItem?.id === 'cannon' && now > (selectedItem.cooldownUntil || 0)) {
+                    selectedItem.cooldownUntil = now + CANNON_COOLDOWN;
+                    const spawnPos = { x: player.x + player.width/2 + Math.cos(player.rotation) * CANNON_FRONT_OFFSET, y: player.y + player.height/2 + Math.sin(player.rotation) * CANNON_FRONT_OFFSET };
+                    const uniqueId = `ball_${nextUniqueObjectId++}`;
+                    const ballBody = Matter.Bodies.circle(spawnPos.x, spawnPos.y, LARGE_BALL_RADIUS, {
+                        restitution: 0.9, friction: 0.05, frictionAir: 0.001, density: 0.002, label: 'largeBall'
+                    });
+                    ballBody.uniqueId = uniqueId; ballBody.bounces = 0;
+                    const velocity = { x: Math.cos(player.rotation) * LARGE_BALL_SPEED, y: Math.sin(player.rotation) * LARGE_BALL_SPEED };
+                    Matter.Body.setVelocity(ballBody, velocity);
+                    Matter.World.add(world, ballBody);
+                    gameState.largeBalls.push({ uniqueId: uniqueId, x: spawnPos.x, y: spawnPos.y, radius: LARGE_BALL_RADIUS, rotation: 0, createdAt: now });
                 }
                 break;
-            case 'ability':
-                const cloak = player.inventory.find(i => i.id === 'invisibilityCloak');
-                if (cloak && !cloak.active) {
-                    cloak.active = true;
+            case 'function':
+                if (player.inventory.find(i => i.id === 'invisibilityCloak') && !player.isInvisible) {
+                    player.inventory.find(i => i.id === 'invisibilityCloak').active = true;
                     player.isInvisible = true;
-                    io.emit('newMessage', {
-                        name: 'Server',
-                        text: `${player.name} has vanished!`
-                    });
                     return;
                 }
-
-                if (player.activeAbility === 'illusionist' && player.illusionistAvailable) {
-                    player.illusionistAvailable = false;
-                    gameState.illusions.push({
-                        id: nextIllusionId++,
-                        x: player.x,
-                        y: player.y,
-                        width: player.width,
-                        height: player.height,
-                        vx: Math.cos(player.rotation) * ILLUSION_SPEED,
-                        vy: Math.sin(player.rotation) * ILLUSION_SPEED,
-                        creationTime: Date.now()
-                    });
-                    setTimeout(() => {
-                        if (gameState.players[socket.id]) player.illusionistAvailable = true;
-                    }, ILLUSIONIST_COOLDOWN);
+                if (player.activeFunction === 'athlete' && player.sprintAvailable) {
+                    player.isSprinting = true; player.sprintAvailable = false;
+                    setTimeout(() => { if (gameState.players[socket.id]) gameState.players[socket.id].isSprinting = false; }, SPRINT_DURATION);
+                    setTimeout(() => { if (gameState.players[socket.id]) gameState.players[socket.id].sprintAvailable = true; }, SPRINT_COOLDOWN);
                 }
-                if (player.activeAbility === 'athlete' && player.sprintAvailable) {
-                    player.isSprinting = true;
-                    player.sprintAvailable = false;
-                    const originalSpeed = player.speed;
-                    player.speed = Math.min(MAX_PLAYER_SPEED, player.speed * 2);
-                    setTimeout(() => {
-                        if (gameState.players[socket.id]) {
-                            player.isSprinting = false;
-                            player.speed = originalSpeed;
-                        }
-                    }, SPRINT_DURATION);
-                    setTimeout(() => {
-                        if (gameState.players[socket.id]) player.sprintAvailable = true;
-                    }, SPRINT_COOLDOWN);
-                }
-                if (player.activeAbility === 'spy' && player.spyUsesLeft > 0 && !player.spyCooldown && !player.isSpying) {
-                    player.isSpying = true;
-                    player.spyUsesLeft--;
-                    player.spyCooldown = true;
-                    setTimeout(() => {
-                        if (gameState.players[socket.id]) player.isSpying = false;
-                    }, SPY_DURATION);
-                    setTimeout(() => {
-                        if (gameState.players[socket.id]) player.spyCooldown = false;
-                    }, SPY_COOLDOWN);
+                if (player.activeFunction === 'spy' && player.spyUsesLeft > 0 && !player.spyCooldown && !player.isSpying) {
+                    player.isSpying = true; player.spyUsesLeft--; player.spyCooldown = true;
+                    setTimeout(() => { if (gameState.players[socket.id]) gameState.players[socket.id].isSpying = false; }, SPY_DURATION);
+                    setTimeout(() => { if (gameState.players[socket.id]) gameState.players[socket.id].spyCooldown = false; }, SPY_COOLDOWN);
                 }
                 break;
             case 'drop_item':
                 if (player.carryingObject) {
-                    const glove = player.inventory.find(i => i.id === 'gravityGlove');
-                    if (glove) {
-                        glove.uses--;
-                        if (glove.uses <= 0) {
-                            player.inventory = player.inventory.filter(i => i.id !== 'gravityGlove');
-                            io.emit('newMessage', {
-                                name: 'Server',
-                                text: `${player.name}'s Gravity Glove broke!`
-                            });
-                        }
-                    }
-                    const objectToDrop = player.carryingObject;
+                    const obj = player.carryingObject;
+                    const dropPos = { x: player.x + player.width / 2 + Math.cos(player.rotation) * (player.width / 2 + obj.width / 2 + 10), y: player.y + player.height / 2 + Math.sin(player.rotation) * (player.height / 2 + obj.height / 2 + 10) };
+                    const newBody = Matter.Bodies.rectangle(dropPos.x, dropPos.y, obj.width, obj.height, {
+                        angle: player.rotation, frictionAir: 0.05, friction: 0.1, restitution: 0.2, density: getDensityById(obj.id), label: 'furniture'
+                    });
+                    newBody.uniqueId = obj.uniqueId; newBody.gameId = obj.id;
+                    Matter.World.add(world, newBody); bodiesMap[obj.uniqueId] = newBody;
                     player.carryingObject = null;
-                    objectToDrop.rotation = player.rotation;
-                    const distance = player.width / 2 + objectToDrop.width / 2 + 10;
-                    objectToDrop.x = (player.x + player.width / 2) + Math.cos(player.rotation) * distance - objectToDrop.width / 2;
-                    objectToDrop.y = (player.y + player.height / 2) + Math.sin(player.rotation) * distance - objectToDrop.height / 2;
-                    objectToDrop.vx = 0;
-                    objectToDrop.vy = 0;
-                    objectToDrop.angularVelocity = 0;
-                    if (objectToDrop.id.startsWith('box')) {
-                        gameState.box.push(objectToDrop);
-                    } else {
-                        gameState.furniture.push(objectToDrop);
+                } else if (player.inventory.length > 0 && player.selectedSlot !== undefined) {
+                    const selectedItem = player.inventory[player.selectedSlot];
+                    if (!selectedItem || selectedItem.id === 'gravityGlove') break;
+                    player.inventory.splice(player.selectedSlot, 1);
+                    if (selectedItem.id === 'runningTennis') {
+                        player.speed /= 1.50;
+                        player.originalSpeed /= 1.50;
                     }
-                } else if (player.inventory.length > 0 && player.role !== 'neutral') {
-                    if (player.inventory.find(i => i.id === 'invisibilityCloak' && i.active)) {
-                        return;
-                    }
-                    // This will only drop one item, the last one.
-                    dropHeldItem(player);
+                    dropHeldItem({ ...player, inventory: [selectedItem] });
                 }
                 break;
             case 'interact':
                 const glove = player.inventory.find(i => i.id === 'gravityGlove');
                 if (glove && !player.carryingObject && glove.uses > 0) {
-                    let closestObject = null;
-                    let minDistance = PICKUP_DISTANCE;
-                    let closestIndex = -1;
-                    let closestSource = '';
-                    gameState.box.forEach((obj, index) => {
-                        const dx = (player.x + player.width / 2) - (obj.x + obj.width / 2);
-                        const dy = (player.y + player.height / 2) - (obj.y + obj.height / 2);
-                        const distance = Math.sqrt(dx * dx + dy * dy);
-                        if (distance < minDistance) {
-                            minDistance = distance;
-                            closestObject = obj;
-                            closestIndex = index;
-                            closestSource = 'box';
-                        }
-                    });
-                    gameState.furniture.forEach((obj, index) => {
-                        if (UNMOVABLE_FURNITURE.includes(obj.id)) return;
-                        const dx = (player.x + player.width / 2) - (obj.x + obj.width / 2);
-                        const dy = (player.y + player.height / 2) - (obj.y + obj.height / 2);
-                        const distance = Math.sqrt(dx * dx + dy * dy);
-                        if (distance < minDistance) {
-                            minDistance = distance;
-                            closestObject = obj;
-                            closestIndex = index;
-                            closestSource = 'furniture';
-                        }
-                    });
-                    if (closestObject) {
-                        let removedObject;
-                        if (closestSource === 'box') {
-                            [removedObject] = gameState.box.splice(closestIndex, 1);
-                        } else if (closestSource === 'furniture') {
-                            [removedObject] = gameState.furniture.splice(closestIndex, 1);
-                        }
-                        player.carryingObject = removedObject;
+                    let closestBody = null, minDistance = 200;
+                    for (const body of world.bodies) {
+                        if (body.isStatic || body.label === 'player' || body.label === 'boundary') continue;
+                        const dist = Math.hypot(body.position.x - player.x, body.position.y - player.y);
+                        if (dist < minDistance) { minDistance = dist; closestBody = body; }
+                    }
+                    if (closestBody) {
+                        const objData = gameState.box.find(o => o.uniqueId === closestBody.uniqueId) || gameState.furniture.find(o => o.uniqueId === closestBody.uniqueId);
+                        player.carryingObject = { ...objData };
+                        Matter.World.remove(world, closestBody); delete bodiesMap[closestBody.uniqueId];
                         return;
                     }
                 }
-                if (player.inventory.length < player.inventorySlots && player.role !== 'zombie' && player.role !== 'neutral') {
+                
+                const currentItemCount = player.inventory.filter(i => i && i.id !== 'card').length;
+                if (currentItemCount < player.inventorySlots && player.role !== 'zombie') {
+                    for (let i = gameState.groundItems.length - 1; i >= 0; i--) {
+                        const item = gameState.groundItems[i];
+                        if (Math.hypot(player.x - item.x, player.y - item.y) < PICKUP_DISTANCE) {
+                            player.inventory.push(item);
+                            if (item.id === 'drone') gameState.drones[player.id] = { ownerId: player.id, x: player.x, y: player.y, ammo: item.ammo };
+                            gameState.groundItems.splice(i, 1);
+                            return;
+                        }
+                    }
                     if (gameState.skateboard && gameState.skateboard.spawned && !gameState.skateboard.ownerId) {
                         const skate = gameState.skateboard;
-                        const dx = (player.x + player.width / 2) - (skate.x + skate.width / 2);
-                        const dy = (player.y + player.height / 2) - (skate.y + skate.height / 2);
-                        const distance = Math.sqrt(dx * dx + dy * dy);
-                        if (distance < PICKUP_DISTANCE) {
-                            player.inventory.push({ ...skate
-                            });
+                        const dist = Math.hypot(player.x - skate.x, player.y - skate.y);
+                        if (dist < PICKUP_DISTANCE) {
+                            player.inventory.push({ ...skate });
                             skate.ownerId = player.id;
                             skate.spawned = false;
                             return;
                         }
                     }
-                    for (let i = gameState.groundItems.length - 1; i >= 0; i--) {
-                        const item = gameState.groundItems[i];
-                        const dx = (player.x + player.width / 2) - (item.x + item.width / 2);
-                        const dy = (player.y + player.height / 2) - (item.y + item.height / 2);
-                        const distance = Math.sqrt(dx * dx + dy * dy);
-                        if (distance < PICKUP_DISTANCE) {
-                            player.inventory.push(item);
-                            if (item.id === 'drone') {
-                                gameState.drones[player.id] = {
-                                    ownerId: player.id,
-                                    x: player.x,
-                                    y: player.y,
-                                    ammo: item.ammo
-                                };
-                            }
-                            gameState.groundItems.splice(i, 1);
+                    if (gameState.runningTennis.spawned && !gameState.runningTennis.ownerId) {
+                        const tennis = gameState.runningTennis;
+                        if (Math.hypot(player.x - tennis.x, player.y - tennis.y) < PICKUP_DISTANCE) {
+                            player.inventory.push({ ...tennis });
+                            tennis.ownerId = player.id;
+                            tennis.spawned = false;
+                            player.speed *= 1.50;
+                            player.originalSpeed *= 1.50;
                             return;
                         }
                     }
                 }
-                if (player.activeAbility === 'engineer' && Date.now() > (player.engineerCooldownUntil || 0) && !player.isInDuct) {
+
+                if (player.activeFunction === 'engineer' && now > player.engineerCooldownUntil && !player.isInDuct) {
                     for (let i = 0; i < gameState.ducts.length; i++) {
-                        if (isCollidingCircleRect(player.hitbox, gameState.ducts[i])) {
-                            player.isInDuct = true;
-                            player.engineerCooldownUntil = Date.now() + 15000;
+                        if (isColliding(player, gameState.ducts[i])) {
+                            player.isInDuct = true; player.engineerCooldownUntil = now + 15000;
                             const exitDuct = gameState.ducts[(i + 1) % gameState.ducts.length];
                             setTimeout(() => {
-                                if (gameState.players[socket.id]) {
-                                    player.x = exitDuct.x + exitDuct.width / 2 - player.width / 2;
-                                    player.y = exitDuct.y + exitDuct.height / 2 - player.height / 2;
+                                if (player) {
+                                    const playerBody = world.bodies.find(b => b.playerId === player.id);
+                                    if(playerBody) Matter.Body.setPosition(playerBody, {x: exitDuct.x, y: exitDuct.y});
                                     player.isInDuct = false;
                                 }
                             }, DUCT_TRAVEL_TIME);
@@ -2040,236 +1051,87 @@ io.on('connection', (socket) => {
                 break;
         }
     });
+    
     socket.on('sendMessage', (text) => {
         const player = gameState.players[socket.id];
         if (player && text && text.trim().length > 0) {
-            const message = {
-                name: player.name,
-                text: text.substring(0, 40)
-            };
-            io.emit('newMessage', message);
+            io.emit('newMessage', { name: player.name, text: text.substring(0, 40) });
         }
     });
+
     socket.on('disconnect', () => {
         console.log('Player disconnected:', socket.id);
         const player = gameState.players[socket.id];
         if (player) {
+            const playerBody = world.bodies.find(b => b.playerId === socket.id);
+            if (playerBody) Matter.World.remove(world, playerBody);
+            if (player.inventory.some(i => i.id === 'runningTennis')) player.speed /= 1.50;
             if (player.carryingObject) {
-                const objectToDrop = player.carryingObject;
-                objectToDrop.x = player.x;
-                objectToDrop.y = player.y;
-                objectToDrop.vx = 0;
-                objectToDrop.vy = 0;
-                objectToDrop.angularVelocity = 0;
-                if (objectToDrop.id && objectToDrop.id.startsWith('box')) {
-                    gameState.box.push(objectToDrop);
-                } else {
-                    gameState.furniture.push(objectToDrop);
-                }
+                const obj = player.carryingObject;
+                const newBody = Matter.Bodies.rectangle(player.x, player.y, obj.width, obj.height, { density: getDensityById(obj.id), label: 'furniture' });
+                newBody.uniqueId = obj.uniqueId; newBody.gameId = obj.id;
+                Matter.World.add(world, newBody); bodiesMap[obj.uniqueId] = newBody;
             }
             dropHeldItem(player);
-            if (player.activeAbility !== ' ') {
-                gameState.takenAbilities = gameState.takenAbilities.filter(ability => ability !== player.activeAbility);
-            }
+            if (player.activeFunction !== ' ') gameState.takenFunctions = gameState.takenFunctions.filter(a => a !== player.activeFunction);
             gameState.portals = gameState.portals.filter(p => p.ownerId !== socket.id);
         }
         delete gameState.players[socket.id];
     });
 });
 
-// =================================================================
-// GAME LOOP & SERVER START
-// =================================================================
 setInterval(() => {
-    if (!gameState || !gameState.players) return;
-    updateGameState();
-    io.emit('gameStateUpdate', gameState);
-}, TICK_RATE);
-
-function startNewRound() {
-    const persistentData = {};
-    for (const id in gameState.players) {
-        const p = gameState.players[id];
-        persistentData[id] = {
-            inventory: p.inventory,
-            hasInventoryUpgrade: p.hasInventoryUpgrade,
-            zombieSpeed: p.role === 'zombie' ? p.speed : p.zombieSpeed,
-            zombieWidth: p.role === 'zombie' ? p.width : p.zombieWidth,
-            zombieHeight: p.role === 'zombie' ? p.height : p.zombieHeight,
-        };
-    }
-    const currentPlayers = gameState.players;
-    initializeGame();
-    const allHideableObjects = [...gameState.furniture, ...gameState.box, ...gameState.ducts];
-    if (allHideableObjects.length > 0) {
-        const randomObject = allHideableObjects[Math.floor(Math.random() * allHideableObjects.length)];
-        const cardWidth = 37;
-        const cardHeight = 25;
-        gameState.groundItems.push({
-            id: 'card',
-            x: randomObject.x + (randomObject.width / 2) - (cardWidth / 2),
-            y: randomObject.y + (randomObject.height / 2) - (cardHeight / 2),
-            width: cardWidth,
-            height: cardHeight,
-        });
-    }
-    gameState.players = currentPlayers;
-    for (const id in gameState.players) {
-        const player = gameState.players[id];
-        const savedData = persistentData[id];
-
-        player.hasInventoryUpgrade = false;
-        player.inventorySlots = 1;
-
-        if (savedData) {
-            player.inventory = savedData.inventory || [];
-            player.hasInventoryUpgrade = savedData.hasInventoryUpgrade || false;
-            if (player.hasInventoryUpgrade) {
-                player.inventorySlots = 2;
-            }
-            player.zombieSpeed = savedData.zombieSpeed;
-            player.zombieWidth = savedData.zombieWidth;
-            player.zombieHeight = savedData.zombieHeight;
-
-            if (player.inventory && player.inventory.some(i => i.id === 'skateboard')) {
-                gameState.skateboard.ownerId = id;
-                gameState.skateboard.spawned = false;
-            }
-            if (player.inventory && player.inventory.some(i => i.id === 'drone')) {
-                const droneItem = player.inventory.find(i => i.id === 'drone');
-                gameState.drones[id] = {
-                    ownerId: player.id,
-                    x: player.x,
-                    y: player.y,
-                    ammo: droneItem ? droneItem.ammo : DRONE_MAX_AMMO
-                };
-            }
-        } else {
-            player.inventory = [];
-        }
-
-        player.x = WORLD_WIDTH / 2 + 500;
-        player.y = WORLD_HEIGHT / 2;
-        player.role = 'human';
-        player.neutralAbility = null;
-        player.selectedSlot = 0;
-        player.activeAbility = ' ';
-        player.isSprinting = false;
-        player.sprintAvailable = true;
-        player.isSpying = false;
-        player.spyUsesLeft = 2;
-        player.spyCooldown = false;
-        player.isHidden = false;
-        player.arrowAmmo = 0;
-        player.engineerCooldownUntil = 0;
-        player.isInDuct = false;
-        player.illusionistPassiveAvailable = true;
-        player.zombieAbility = null;
-        player.trapsLeft = 0;
-        player.knockbackVx = 0;
-        player.knockbackVy = 0;
-        player.hasAntidoteEffect = false;
-    }
-}
-
-setInterval(() => {
-    if (!gameState || !gameState.players || Object.keys(gameState.players).length === 0) return;
+    if (!gameState || !gameState.players || Object.keys(gameState.players).length <= 1) return;
     if (gameState.gamePhase === 'waiting') {
         gameState.startTime--;
         if (gameState.startTime <= 0) {
-            gameState.gamePhase = 'running';
-            gameState.timeLeft = ROUND_DURATION;
+            gameState.gamePhase = 'running'; gameState.timeLeft = ROUND_DURATION;
             const playerIds = Object.keys(gameState.players);
             if (playerIds.length > 0) {
-                const randomIndex = Math.floor(Math.random() * playerIds.length);
-                const zombieId = playerIds[randomIndex];
+                const zombieId = playerIds[Math.floor(Math.random() * playerIds.length)];
                 const zombiePlayer = gameState.players[zombieId];
-                if (zombiePlayer) {
-                    dropHeldItem(zombiePlayer);
-                    zombiePlayer.role = 'zombie';
-                    console.log(`The round has started! ${zombiePlayer.name} is the initial Zombie!`);
-                    io.emit('newMessage', {
-                        name: 'Server',
-                        text: `The infection has begun! ${zombiePlayer.name} is the zombie!`
-                    });
-                    io.emit('newMessage', {
-                        name: 'Server',
-                        text: 'ATM card is hidden. Find it!',
-                        color: 'red'
-                    });
+                if (zombiePlayer.inventory.some(i => i.id === 'runningTennis')) {
+                    zombiePlayer.speed /= 1.50;
+                    zombiePlayer.originalSpeed /= 1.50;
                 }
-                const humanIds = playerIds.filter(id => gameState.players[id] && gameState.players[id].role === 'human');
-                if (humanIds.length > 0) {
-                    const neutralIndex = Math.floor(Math.random() * humanIds.length);
-                    const neutralId = humanIds[neutralIndex];
-                    const neutralPlayer = gameState.players[neutralId];
-                    if (neutralPlayer) {
-                        neutralPlayer.role = 'neutral';
-                        io.emit('newMessage', {
-                            name: 'Server',
-                            text: `${neutralPlayer.name} is a Neutral!`,
-                            color: '#f1c40f'
-                        });
-                    }
+                dropHeldItem(zombiePlayer);
+                zombiePlayer.role = 'zombie';
+
+                const oldBody = world.bodies.find(b => b.playerId === zombiePlayer.id);
+                if (oldBody) {
+                    const { position, velocity } = oldBody;
+                    Matter.World.remove(world, oldBody);
+                    const newBody = createPlayerBody(zombiePlayer);
+                    Matter.Body.setPosition(newBody, position);
+                    Matter.Body.setVelocity(newBody, velocity);
+                    Matter.World.add(world, newBody);
                 }
             }
         }
     } else if (gameState.gamePhase === 'running') {
-        let humanCount = 0;
-        let hasZombies = false;
-        const playerIds = Object.keys(gameState.players);
-        for (const id of playerIds) {
-            const player = gameState.players[id];
-            if (player.role === 'zombie') hasZombies = true;
-            if (player.role === 'human' && !player.isSpying) {
-                humanCount++;
-            }
-        }
-        if (humanCount === 0 && hasZombies) {
-            console.log("All humans have been infected! Zombies won.");
-            io.emit('newMessage', {
-                name: 'Server',
-                text: 'The Zombies have won!'
-            });
-            gameState.gamePhase = 'post-round';
-            gameState.postRoundTimeLeft = 10;
+        let humanCount = Object.values(gameState.players).filter(p=>p.role === 'human').length;
+        if (humanCount === 0 && Object.keys(gameState.players).length > 1) {
+            io.emit('newMessage', { name: 'Server', text: 'The Zombies have won!' });
+            gameState.gamePhase = 'post-round'; gameState.postRoundTimeLeft = 10;
             return;
         }
         if (gameState.timeLeft <= 0) {
-            console.log("Time's up! Humans won the round.");
-            io.emit('newMessage', {
-                name: 'Server',
-                text: "Time's up! The Humans survived!"
-            });
-            gameState.gamePhase = 'post-round';
-            gameState.postRoundTimeLeft = 10;
+            io.emit('newMessage', { name: 'Server', text: "Time's up! The Humans survived!" });
+            gameState.gamePhase = 'post-round'; gameState.postRoundTimeLeft = 10;
             return;
         }
         gameState.timeLeft--;
-        for (const id in gameState.players) {
-            const player = gameState.players[id];
+        for (const player of Object.values(gameState.players)) {
             if (player.role === 'zombie') {
-                const coinLoss = Math.floor(Math.random() * 2) + 1;
-                player.coins = Math.max(0, player.coins - coinLoss);
+                const gemLoss = Math.random() * (5 - 0.33) + 0.33;
+                player.gems -= gemLoss;
             } else if (player.role === 'human') {
-                player.coins += 1;
-                player.width += GROWTH_AMOUNT;
-                player.height = player.width * 1.5;
+                const gemGain = Math.random() * (3 - 0.33) + 0.33;
+                player.gems += gemGain;
             }
-            if (!player.isSprinting) {
-                if (player.role === 'zombie') {
-                    player.speed = Math.max(ZOMBIE_MIN_SPEED, player.speed - ZOMBIE_SPEED_DECAY_PER_SECOND);
-                    const speedRatio = player.speed / INITIAL_PLAYER_SPEED;
-                    player.width = INITIAL_PLAYER_SIZE * speedRatio;
-                    player.height = (INITIAL_PLAYER_SIZE * 1.5) * speedRatio;
-                } else if (player.role === 'human') {
-                    const sizeDifference = player.width - INITIAL_PLAYER_SIZE;
-                    let newSpeed = INITIAL_PLAYER_SPEED + (sizeDifference * SPEED_PER_PIXEL_OF_GROWTH);
-                    player.speed = Math.min(MAX_PLAYER_SPEED, newSpeed);
-                    player.originalSpeed = player.speed;
-                }
+            if (player.speed < ZOMBIE_MIN_SPEED) {
+                player.speed = ZOMBIE_MIN_SPEED;
             }
-            player.speed = Math.max(2, player.speed);
         }
     } else if (gameState.gamePhase === 'post-round') {
         gameState.postRoundTimeLeft--;
@@ -2278,6 +1140,72 @@ setInterval(() => {
         }
     }
 }, 1000);
+
+setInterval(() => {
+    updateGameState();
+    io.emit('gameStateUpdate', gameState);
+}, TICK_RATE);
+
+function startNewRound() {
+    const persistentData = {};
+    for (const id in gameState.players) {
+        const p = gameState.players[id];
+        persistentData[id] = { name: p.name, inventory: p.inventory, hasInventoryUpgrade: p.hasInventoryUpgrade, gems: p.gems, speed: p.speed, originalSpeed: p.originalSpeed, width: p.width, height: p.height };
+    }
+    Matter.World.clear(world, false); Matter.Engine.clear(engine);
+    
+    initializeGame();
+
+    for (const id in persistentData) {
+        if (!gameState.players[id]) {
+            createNewPlayer({ id });
+        }
+        const player = gameState.players[id];
+        const pData = persistentData[id];
+        
+        Object.assign(player, {
+            name: pData.name, inventory: pData.inventory || [], hasInventoryUpgrade: pData.hasInventoryUpgrade || false,
+            inventorySlots: pData.hasInventoryUpgrade ? 2 : 1, role: 'human', selectedSlot: 0, activeFunction: ' ',
+            gems: pData.gems, speed: pData.speed, originalSpeed: pData.originalSpeed, width: pData.width, height: pData.height,
+            isSprinting: false, sprintAvailable: true, isSpying: false, spyUsesLeft: 2, spyCooldown: false,
+            isHidden: false, arrowAmmo: 0, engineerCooldownUntil: 0, isInDuct: false,
+            zombieAbility: null, trapsLeft: 0, minesLeft: 0, hasAntidoteEffect: false, nextGrowthTime: 0,
+            seaEnterTime: null, seaCountdown: null, draggedBy: null, draggedUntil: null,
+        });
+
+        const playerBody = world.bodies.find(b => b.playerId === id);
+        const startPos = {x: WORLD_WIDTH / 2 + 500, y: WORLD_HEIGHT / 2};
+        player.x = startPos.x;
+        player.y = startPos.y;
+
+        if(!playerBody) {
+            const newBody = createPlayerBody(player);
+            Matter.World.add(world, newBody);
+        } else {
+             Matter.Body.setPosition(playerBody, startPos);
+             Matter.Body.setVelocity(playerBody, {x: 0, y: 0});
+        }
+    }
+    
+    if (gameState.sunshades.length > 0) {
+        const randomObject = gameState.sunshades[Math.floor(Math.random() * gameState.sunshades.length)];
+        gameState.groundItems.push({
+            id: 'card', x: randomObject.x + (randomObject.width / 2), y: randomObject.y + (randomObject.height / 2),
+            width: 37, height: 25,
+        });
+    }
+
+    if (!Object.values(gameState.players).some(p => p.inventory.some(i => i && i.id === 'runningTennis'))) {
+        gameState.runningTennis.spawned = true; gameState.runningTennis.ownerId = null;
+        let spawnX, spawnY;
+        do {
+            spawnX = Math.random() * (WORLD_WIDTH - 100);
+            spawnY = Math.random() * (WORLD_HEIGHT - 100);
+        } while (isColliding({x: spawnX, y: spawnY, width: 40, height: 40}, gameState.house) || spawnX >= SEA_AREA.x);
+        gameState.runningTennis.x = spawnX;
+        gameState.runningTennis.y = spawnY;
+    }
+}
 
 server.listen(PORT, () => {
     initializeGame();

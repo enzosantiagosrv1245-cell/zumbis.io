@@ -35,9 +35,6 @@ const ctx = canvas.getContext('2d');
     window.addEventListener('resize', resizeCanvas);
 })();
 
-// =================================================================
-// region: ASSET LOADING
-// =================================================================
 function loadImage(src) {
     const img = new Image();
     img.src = src;
@@ -68,13 +65,16 @@ const grenadeSprite = loadImage('Sprites/Grenade.png');
 const invisibilityCloakSprite = loadImage('Sprites/InvisibilityCloak.png');
 const antidoteSprite = loadImage('Sprites/Antidote.png');
 const trapSprite = loadImage('Sprites/Trap.png');
-const drumSprite = loadImage('Sprites/Drum.png');
-const zoomSprite = loadImage('Sprites/Zoom.png');
+const mineSprite = loadImage('Sprites/Mine.png'); // <-- NOVO ITEM
 const gravityGloveSprite = loadImage('Sprites/GravityGlove.png');
+const normalGloveSprite = loadImage('Sprites/GravityGlove.png');
 const cannonSprite = loadImage('Sprites/Cannon.png');
 const largeBallSprite = loadImage('Sprites/LargeBall.png');
 const portalsSprite = loadImage('Sprites/Portals.png');
 const inventoryUpgradeSprite = loadImage('Sprites/Slot.png');
+const runningTennisSprite = loadImage('Sprites/runningTennis.png');
+const bowSprite = loadImage('Sprites/Bow.png');
+const shieldSprite = loadImage('Sprites/Shield.png');
 
 const itemSprites = {
     skateboard: skateboardSprite,
@@ -82,18 +82,17 @@ const itemSprites = {
     invisibilityCloak: invisibilityCloakSprite,
     card: cardSprite,
     antidote: antidoteSprite,
-    Drum: drumSprite,
-    zoom: zoomSprite,
+    normalGlove: normalGloveSprite,
     gravityGlove: gravityGloveSprite,
     grenade: grenadeSprite,
     cannon: cannonSprite,
     portals: portalsSprite,
-    inventoryUpgrade: inventoryUpgradeSprite
+    inventoryUpgrade: inventoryUpgradeSprite,
+    runningTennis: runningTennisSprite,
+    bow: bowSprite,
+    shield: shieldSprite
 };
 
-// =================================================================
-// region: GAME STATE & VARIABLES
-// =================================================================
 let myId = null;
 let gameState = {
     players: {},
@@ -102,14 +101,13 @@ let gameState = {
     startTime: 60,
     postRoundTimeLeft: 10,
     gamePhase: 'waiting',
-    abilityCosts: {},
+    functionCosts: {},
     drones: {},
     grenades: [],
     groundItems: [],
-    illusions: [],
     traps: [],
+    mines: [], // <-- NOVO
     largeBalls: [],
-    hardWalls: [],
     portals: []
 };
 const movement = {
@@ -124,15 +122,12 @@ let mouse = {
 };
 let isMenuOpen = false;
 let isHowToPlayOpen = false;
-let activeMenuTab = 'abilities';
+let activeMenuTab = 'functions';
 const chatInput = document.getElementById('chatInput');
 let isChatting = false;
 let chatMessages = [];
 const MAX_MESSAGES = 10;
 
-// =================================================================
-// NETWORK (SOCKET.IO)
-// =================================================================
 const socket = io();
 
 socket.on('connect', () => {
@@ -158,9 +153,6 @@ socket.on('newMessage', (message) => {
     }
 });
 
-// =================================================================
-// INPUT HANDLING
-// =================================================================
 window.addEventListener('keydown', function(event) {
     if (document.getElementById('nickname-container')) {
         return;
@@ -207,11 +199,17 @@ window.addEventListener('keydown', function(event) {
                 if (me.role === 'zombie') {
                     activeMenuTab = 'zombie_items';
                 } else if (me.role === 'human') {
-                    activeMenuTab = 'abilities';
-                } else if (me.role === 'neutral') {
-                    activeMenuTab = 'neutral_abilities';
+                    activeMenuTab = 'functions';
                 }
             }
+        }
+    }
+    
+    if (me && me.carryingObject) {
+        if (key === 'q') {
+            socket.emit('rotateCarriedObject', 'left');
+        } else if (key === 'e') {
+            socket.emit('rotateCarriedObject', 'right');
         }
     }
 
@@ -221,7 +219,7 @@ window.addEventListener('keydown', function(event) {
 
     switch (key) {
         case '1':
-            if (me && (me.role === 'neutral' || (me.role === 'human' && me.inventorySlots > 1))) {
+            if (me && (me.role === 'human' && me.inventorySlots > 1)) {
                 socket.emit('playerAction', {
                     type: 'select_slot',
                     slot: 0
@@ -254,7 +252,11 @@ window.addEventListener('keydown', function(event) {
             break;
         case 'e':
             const selectedItem = me && me.inventory && me.inventory[me.selectedSlot];
-            if (selectedItem && selectedItem.id === 'portals') {
+            if (me && me.role === 'zombie') {
+                socket.emit('playerAction', {
+                    type: 'zombie_item'
+                });
+            } else if (selectedItem && selectedItem.id === 'portals') {
                 socket.emit('playerAction', {
                     type: 'place_portal'
                 });
@@ -270,13 +272,9 @@ window.addEventListener('keydown', function(event) {
             break;
         case 'c':
             if (me) {
-                if (me.role === 'zombie') {
+                if (me.role === 'human') {
                     socket.emit('playerAction', {
-                        type: 'zombie_item'
-                    });
-                } else {
-                    socket.emit('playerAction', {
-                        type: 'ability'
+                        type: 'function'
                     });
                 }
             }
@@ -357,7 +355,7 @@ canvas.addEventListener('mousedown', function(event) {
                     buttons
                 } = getZombieItemsLayout();
                 for (const btn of buttons) {
-                    const canAfford = me.coins >= btn.price;
+                    const canAfford = me.gems >= btn.price;
                     if (isClickInside(mouse, btn.rect) && canAfford) {
                         socket.emit('buyZombieAbility', btn.id);
                         isMenuOpen = false;
@@ -375,12 +373,12 @@ canvas.addEventListener('mousedown', function(event) {
                 isNearATM = distance < 250;
             }
 
-            const abilitiesTabBtn = getAbilitiesTabRect();
+            const functionsTabBtn = getFunctionsTabRect();
             const itemsTabBtn = getItemsTabRect();
             const rareItemsTabBtn = getRareItemsTabRect();
 
-            if (isClickInside(mouse, abilitiesTabBtn)) {
-                activeMenuTab = 'abilities';
+            if (isClickInside(mouse, functionsTabBtn)) {
+                activeMenuTab = 'functions';
                 return;
             }
             if (isClickInside(mouse, itemsTabBtn)) {
@@ -388,19 +386,19 @@ canvas.addEventListener('mousedown', function(event) {
                 return;
             }
             if (isNearATM && isClickInside(mouse, rareItemsTabBtn)) {
-                activeMenuTab = 'rare_items';
+                activeMenuTab = 'exclusive_items';
                 return;
             }
 
-            if (activeMenuTab === 'abilities' && me.activeAbility === ' ') {
+            if (activeMenuTab === 'functions' && me.activeFunction === ' ') {
                 if (gameState.gamePhase !== 'running') return;
-                const abilities = getAbilitiesLayout().buttons;
-                for (const btn of abilities) {
-                    const cost = gameState.abilityCosts[btn.ability] || 0;
-                    const canAfford = me.coins >= cost;
-                    const isTaken = gameState.takenAbilities.includes(btn.ability);
+                const functions = getFunctionsLayout().buttons;
+                for (const btn of functions) {
+                    const cost = gameState.functionCosts[btn.func] || 0;
+                    const canAfford = me.gems >= cost;
+                    const isTaken = gameState.takenFunctions.includes(btn.func);
                     if (isClickInside(mouse, btn.rect) && !isTaken && canAfford) {
-                        socket.emit('chooseAbility', btn.ability);
+                        socket.emit('chooseFunction', btn.func);
                         isMenuOpen = false;
                         return;
                     }
@@ -411,9 +409,10 @@ canvas.addEventListener('mousedown', function(event) {
                     buttons
                 } = getItemsLayout();
                 for (const btn of buttons) {
-                    const canAfford = me.coins >= btn.price;
+                    const canAfford = me.gems >= btn.price;
                     const alreadyOwned = me.inventory && me.inventory.some(i => i && i.id === btn.id);
-                    const inventoryFull = me.inventory.filter(i => i).length >= me.inventorySlots;
+                    const inventoryWithoutCard = me.inventory.filter(i => i && i.id !== 'card');
+                    const inventoryFull = inventoryWithoutCard.length >= me.inventorySlots;
 
                     if (isClickInside(mouse, btn.rect) && canAfford && !alreadyOwned && !inventoryFull) {
                         socket.emit('buyItem', btn.id);
@@ -422,13 +421,13 @@ canvas.addEventListener('mousedown', function(event) {
                     }
                 }
             }
-            if (activeMenuTab === 'rare_items') {
+            if (activeMenuTab === 'exclusive_items') {
                 const {
                     buttons
                 } = getRareItemsLayout();
                 for (const btn of buttons) {
                     const hasCard = me.inventory && me.inventory.some(i => i && i.id === 'card');
-                    const canAfford = me.coins >= btn.price;
+                    const canAfford = me.gems >= btn.price;
                     const alreadyUpgraded = me.inventorySlots > 1;
 
                     if (btn.id === 'inventoryUpgrade') {
@@ -438,7 +437,8 @@ canvas.addEventListener('mousedown', function(event) {
                             return;
                         }
                     } else {
-                        const inventoryFull = me.inventory.filter(i => i).length >= me.inventorySlots;
+                        const inventoryWithoutCard = me.inventory.filter(i => i && i.id !== 'card');
+                        const inventoryFull = inventoryWithoutCard.length >= me.inventorySlots;
                         const alreadyOwned = me.inventory && me.inventory.some(i => i && i.id === btn.id);
                         if (isClickInside(mouse, btn.rect) && canAfford && hasCard && !inventoryFull && !alreadyOwned) {
                             socket.emit('buyRareItem', btn.id);
@@ -448,40 +448,9 @@ canvas.addEventListener('mousedown', function(event) {
                     }
                 }
             }
-        } else if (me.role === 'neutral') {
-            const abilitiesTabBtn = getNeutralAbilitiesTabRect();
-            if (isClickInside(mouse, abilitiesTabBtn)) {
-                activeMenuTab = 'neutral_abilities';
-                return;
-            }
-
-            if (activeMenuTab === 'neutral_abilities' && !me.neutralAbility) {
-                const {
-                    buttons
-                } = getNeutralAbilitiesLayout();
-                for (const btn of buttons) {
-                    if (isClickInside(mouse, btn.rect)) {
-                        socket.emit('chooseNeutralAbility', btn.ability);
-                        isMenuOpen = false;
-                        return;
-                    }
-                }
-            }
         }
     } else {
         const me = gameState.players[myId];
-
-        if (me && me.role === 'neutral' && me.neutralAbility === 'troll' && me.inventory && me.selectedSlot !== undefined) {
-            const selectedItem = me.inventory[me.selectedSlot];
-            if (selectedItem) {
-                if (selectedItem.id === 'cannon') {
-                    socket.emit('playerAction', {
-                        type: 'troll_fire_cannon'
-                    });
-                    return;
-                }
-            }
-        }
         const selectedItem = me && me.inventory && me.inventory[me.selectedSlot];
         if (selectedItem && selectedItem.id === 'drone') {
             socket.emit('playerAction', {
@@ -495,9 +464,6 @@ canvas.addEventListener('mousedown', function(event) {
     }
 });
 
-// =================================================================
-// UI & MENU
-// =================================================================
 function showNicknameMenu() {
     const existingMenu = document.getElementById('nickname-container');
     if (existingMenu) return;
@@ -578,9 +544,6 @@ function showNicknameMenu() {
     });
 }
 
-// =================================================================
-// DRAWING & RENDERING
-// =================================================================
 function draw() {
     if (document.getElementById('nickname-container')) {
         ctx.fillStyle = 'black';
@@ -600,8 +563,9 @@ function draw() {
     const me = gameState.players[myId];
     const hasGravityGloves = me && me.inventory && me.inventory.find(i => i && i.id === 'gravityGlove');
     const unmovableFurnitureIds = ['atm'];
-    const hasZoom = me.inventory && me.inventory.find(i => i && i.id === 'zoom');
-    const zoomLevel = hasZoom ? 0.8 : 1.0;
+
+    const zoomLevel = 0.67;
+
     const cameraX = (me.x + me.width / 2) - canvas.width / (2 * zoomLevel);
     const cameraY = (me.y + me.height / 2) - canvas.height / (2 * zoomLevel);
 
@@ -622,6 +586,11 @@ function draw() {
         ctx.drawImage(skateboardSprite, skate.x, skate.y, skate.width, skate.height);
     }
 
+    if (gameState.runningTennis && gameState.runningTennis.spawned) {
+        const tennis = gameState.runningTennis;
+        ctx.drawImage(runningTennisSprite, tennis.x, tennis.y, tennis.width, tennis.height);
+    }
+
     if (gameState.groundItems) {
         for (const item of gameState.groundItems) {
             const sprite = itemSprites[item.id];
@@ -636,6 +605,15 @@ function draw() {
             if (trapSprite.complete) ctx.drawImage(trapSprite, trap.x, trap.y, trap.width, trap.height);
         }
     }
+    
+    // <-- NOVO: Desenha as minas
+    if (gameState.mines) {
+        for (const mine of gameState.mines) {
+            if (mineSprite.complete) {
+                ctx.drawImage(mineSprite, mine.x, mine.y, mine.width, mine.height);
+            }
+        }
+    }
 
     if (gameState.portals) {
         for (const portal of gameState.portals) {
@@ -644,18 +622,6 @@ function draw() {
                 ctx.translate(portal.x + portal.width / 2, portal.y + portal.height / 2);
                 ctx.globalAlpha = 0.8 + Math.sin(Date.now() / 300) * 0.2;
                 ctx.drawImage(portalsSprite, -portal.width / 2, -portal.height / 2, portal.width, portal.height);
-                ctx.restore();
-            }
-        }
-    }
-
-    if (gameState.largeBalls) {
-        for (const ball of gameState.largeBalls) {
-            if (largeBallSprite.complete) {
-                ctx.save();
-                ctx.translate(ball.x, ball.y);
-                ctx.rotate(ball.rotation);
-                ctx.drawImage(largeBallSprite, -ball.radius, -ball.radius, ball.radius * 2, ball.radius * 2);
                 ctx.restore();
             }
         }
@@ -672,8 +638,23 @@ function draw() {
         ctx.drawImage(ductSprite, duct.x, duct.y, duct.width, duct.height);
     }
 
+    if (gameState.largeBalls) {
+        for (const ball of gameState.largeBalls) {
+            if (largeBallSprite.complete) {
+                ctx.save();
+                ctx.translate(ball.x + ball.radius, ball.y + ball.radius);
+                ctx.rotate(ball.rotation);
+                ctx.drawImage(largeBallSprite, -ball.radius, -ball.radius, ball.radius * 2, ball.radius * 2);
+                ctx.restore();
+            }
+        }
+    }
+
+    const carriedObjectIds = Object.values(gameState.players).filter(p => p.carryingObject).map(p => p.carryingObject.uniqueId);
+
     if (gameState.box) {
         for (const b of gameState.box) {
+            if (carriedObjectIds.includes(b.uniqueId)) continue;
             ctx.save();
             ctx.translate(b.x + b.width / 2, b.y + b.height / 2);
             ctx.rotate(b.rotation);
@@ -688,6 +669,7 @@ function draw() {
 
     if (gameState.furniture) {
         for (const item of gameState.furniture) {
+            if (carriedObjectIds.includes(item.uniqueId)) continue;
             const sprite = furnitureSprites[item.id];
             if (sprite) {
                 ctx.save();
@@ -703,9 +685,9 @@ function draw() {
         }
     }
 
-    ctx.fillStyle = '#342819ff';
-    ctx.strokeStyle = '#332416ff';
-    ctx.lineWidth = 15;
+    ctx.fillStyle = '#6d6356ff';
+    ctx.strokeStyle = '#393431ff';
+    ctx.lineWidth = 20;
     for (const wall of gameState.house.walls) {
         ctx.fillRect(wall.x, wall.y, wall.width, wall.height);
         ctx.strokeRect(wall.x, wall.y, wall.width, wall.height);
@@ -713,49 +695,26 @@ function draw() {
 
     ctx.fillStyle = '#606060';
     ctx.strokeStyle = '#404040';
-    ctx.lineWidth = 15;
+    ctx.lineWidth = 20;
     for (const wall of gameState.garage.walls) {
         ctx.fillRect(wall.x, wall.y, wall.width, wall.height);
         ctx.strokeRect(wall.x, wall.y, wall.width, wall.height);
     }
 
-    if (gameState.hardWalls) {
-        ctx.fillStyle = '#222222';
-        ctx.strokeStyle = '#111111';
-        ctx.lineWidth = 15;
-        for (const wall of gameState.hardWalls) {
-            ctx.fillRect(wall.x, wall.y, wall.width, wall.height);
-            ctx.strokeRect(wall.x, wall.y, wall.width, wall.height);
-        }
-    }
-
     if (gameState.obstacles) {
-        ctx.fillStyle = '#342819ff';
-        ctx.strokeStyle = '#332416ff';
-        ctx.lineWidth = 15;
+        ctx.fillStyle = '#404040';
+        ctx.strokeStyle = '#404040';
+        ctx.lineWidth = 30;
         for (const wall of gameState.obstacles) {
             ctx.fillRect(wall.x, wall.y, wall.width, wall.height);
             ctx.strokeRect(wall.x, wall.y, wall.width, wall.height);
         }
     }
 
-    ctx.strokeStyle = '#c38a51ff';
-    ctx.lineWidth = 3;
-    for (const wall of gameState.house.walls) {
-        ctx.strokeRect(wall.x, wall.y, wall.width, wall.height);
-    }
     ctx.strokeStyle = '#888888';
     ctx.lineWidth = 3;
     for (const wall of gameState.garage.walls) {
         ctx.strokeRect(wall.x, wall.y, wall.width, wall.height);
-    }
-
-    if (gameState.hardWalls) {
-        ctx.strokeStyle = '#FF2222';
-        ctx.lineWidth = 4;
-        for (const wall of gameState.hardWalls) {
-            ctx.strokeRect(wall.x, wall.y, wall.width, wall.height);
-        }
     }
 
     if (gameState.obstacles) {
@@ -763,17 +722,6 @@ function draw() {
         ctx.lineWidth = 3;
         for (const wall of gameState.obstacles) {
             ctx.strokeRect(wall.x, wall.y, wall.width, wall.height);
-        }
-    }
-
-    if (gameState.illusions) {
-        for (const illusion of gameState.illusions) {
-            ctx.save();
-            ctx.translate(illusion.x + illusion.width / 2, illusion.y + illusion.height / 2);
-            const angle = Math.atan2(illusion.vy, illusion.vx);
-            ctx.rotate(angle);
-            ctx.drawImage(human, -illusion.width / 2, -illusion.height / 2, illusion.width, illusion.height);
-            ctx.restore();
         }
     }
 
@@ -812,17 +760,25 @@ function draw() {
         } else {
             ctx.drawImage(human, -player.width / 2, -player.height / 2, player.width, player.height);
         }
-
-        if (player.role === 'neutral' && player.neutralAbility === 'troll' && player.selectedSlot !== undefined && player.inventory && player.inventory[player.selectedSlot]) {
-            const item = player.inventory[player.selectedSlot];
-            if (item.id === 'cannon' && cannonSprite.complete) {
+        
+        const selectedItem = player.inventory[player.selectedSlot];
+        if (player.role === 'human' && selectedItem?.id === 'cannon') {
+            if (cannonSprite.complete) {
                 const itemWidth = 80;
                 const itemHeight = 50;
                 const itemDistance = player.width / 2;
                 ctx.drawImage(cannonSprite, itemDistance, -itemHeight / 2, itemWidth, itemHeight);
             }
         }
-
+         if (player.role === 'human' && selectedItem?.id === 'shield') {
+            if (shieldSprite.complete) {
+                const itemWidth = 26;
+                const itemHeight = 120;
+                const itemDistance = player.width / 2;
+                ctx.drawImage(shieldSprite, itemDistance, -itemHeight / 2, itemWidth, itemHeight);
+            }
+        }
+        
         if (player.carryingObject) {
             const carried = player.carryingObject;
             const sprite = furnitureSprites[carried.id] || (carried.id.startsWith('box') ? box : null);
@@ -830,52 +786,73 @@ function draw() {
                 const distance = player.width / 2 + carried.width / 2;
                 ctx.save();
                 ctx.translate(distance, 0);
+                ctx.rotate(carried.rotation - player.rotation);
                 ctx.drawImage(sprite, -carried.width / 2, -carried.height / 2, carried.width, carried.height);
                 ctx.restore();
             }
         }
 
-        const drumItem = player.inventory ? player.inventory.find(i => i && i.id === 'Drum') : null;
-        if (drumItem && drumSprite.complete) {
-            const itemWidth = 60;
-            const itemHeight = 30;
-            const itemDistance = player.width / 2;
-            ctx.drawImage(drumSprite, itemDistance + 10, -itemHeight / 2, itemWidth, itemHeight);
-        }
-
         ctx.restore();
 
-        if (player.physicalHitbox) {
-            ctx.strokeStyle = 'rgba(255, 0, 0, 0.5)';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.arc(player.physicalHitbox.cx, player.physicalHitbox.cy, player.physicalHitbox.radius, 0, 2 * Math.PI);
-            ctx.stroke();
-        }
-
-        if (player.drumHitbox) {
-            ctx.strokeStyle = 'rgba(0, 105, 0, 0.9)';
-            ctx.fillStyle = 'rgba(0, 86, 20, 0.3)';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.arc(player.drumHitbox.cx, player.drumHitbox.cy, player.drumHitbox.radius, 0, 2 * Math.PI);
-            ctx.fill();
-            ctx.stroke();
-        }
-
         if (!player.isHidden && !player.isInvisible) {
-            ctx.fillStyle = (player.role === 'zombie' || player.isSpying) ? '#2ecc71' : (player.role === 'neutral' ? '#f1c40f' : 'white');
+            ctx.fillStyle = (player.role === 'zombie' || player.isSpying) ? '#2ecc71' : 'white';
             ctx.strokeStyle = 'black';
             ctx.lineWidth = 5;
             ctx.textAlign = 'center';
             ctx.font = '18px Arial';
             ctx.strokeText(player.name, player.x + player.width / 2, player.y - 20);
             ctx.fillText(player.name, player.x + player.width / 2, player.y - 20);
+        } 
+
+        if (player.role === 'human' && player.seaCountdown !== null && player.seaCountdown > 0) {
+            ctx.fillStyle = '#ff4d4d';
+            ctx.strokeStyle = 'black';
+            ctx.lineWidth = 4;
+            ctx.textAlign = 'center';
+            ctx.font = 'bold 30px Arial';
+            const countdownText = Math.ceil(player.seaCountdown);
+            const textX = player.x + player.width / 2;
+            const textY = player.y + player.height + 30;
+            ctx.strokeText(countdownText, textX, textY);
+            ctx.fillText(countdownText, textX, textY);
         }
     }
 
-    ctx.drawImage(sunshadeII, 4350, 600, 320, 340);
-    ctx.drawImage(sunshade, 4440, 1400, 320, 340);
+    const sunshadeRect1 = {
+        x: 4350,
+        y: 600,
+        width: 320,
+        height: 340
+    };
+    const sunshadeRect2 = {
+        x: 4440,
+        y: 1400,
+        width: 320,
+        height: 340
+    };
+    const meRect = {
+        x: me.x,
+        y: me.y,
+        width: me.width,
+        height: me.height
+    };
+
+    ctx.save();
+    const isUnderSunshade1 = meRect.x < sunshadeRect1.x + sunshadeRect1.width && meRect.x + meRect.width > sunshadeRect1.x && meRect.y < sunshadeRect1.y + sunshadeRect1.height && meRect.y + meRect.height > sunshadeRect1.y;
+    if (isUnderSunshade1) {
+        ctx.globalAlpha = 0.4;
+    }
+    ctx.drawImage(sunshadeII, sunshadeRect1.x, sunshadeRect1.y, sunshadeRect1.width, sunshadeRect1.height);
+    ctx.restore();
+
+    ctx.save();
+    const isUnderSunshade2 = meRect.x < sunshadeRect2.x + sunshadeRect2.width && meRect.x + meRect.width > sunshadeRect2.x && meRect.y < sunshadeRect2.y + sunshadeRect2.height && meRect.y + meRect.height > sunshadeRect2.y;
+    if (isUnderSunshade2) {
+        ctx.globalAlpha = 0.4;
+    }
+    ctx.drawImage(sunshade, sunshadeRect2.x, sunshadeRect2.y, sunshadeRect2.width, sunshadeRect2.height);
+    ctx.restore();
+
 
     for (const arrow of gameState.arrows) {
         ctx.fillStyle = arrow.color || 'red';
@@ -910,12 +887,11 @@ function draw() {
 }
 
 function drawHowToPlayTab() {
-    const tabWidth = 800;
-    const tabHeight = 650;
+    const tabWidth = 950;
+    const tabHeight = 750;
     const tabX = (canvas.width - tabWidth) / 2;
     const tabY = (canvas.height - tabHeight) / 2;
 
-    // Draw background
     ctx.fillStyle = 'rgba(0, 0, 0, 0.95)';
     ctx.strokeStyle = '#2ecc71';
     ctx.lineWidth = 3;
@@ -927,41 +903,38 @@ function drawHowToPlayTab() {
     ctx.fillStyle = 'white';
     ctx.textAlign = 'center';
 
-    // Title
-    ctx.font = 'bold 48px Arial';
+    ctx.font = 'bold 52px Arial';
     ctx.fillStyle = '#2ecc71';
-    ctx.fillText('How to Play', canvas.width / 2, tabY + 70);
+    ctx.fillText('How to Play', canvas.width / 2, tabY + 80);
 
     ctx.textAlign = 'left';
     ctx.fillStyle = 'white';
-    const contentX = tabX + 50;
-    let currentY = tabY + 140;
+    const contentX = tabX + 60;
+    let currentY = tabY + 160;
 
-    // Objective
-    ctx.font = 'bold 28px Arial';
+    ctx.font = 'bold 30px Arial';
     ctx.fillText('Objective', contentX, currentY);
-    currentY += 10;
+    currentY += 15;
     ctx.fillStyle = '#2ecc71';
-    ctx.fillRect(contentX, currentY, 130, 3); // Underline
-    currentY += 40;
+    ctx.fillRect(contentX, currentY, 140, 3);
+    currentY += 45;
 
     ctx.fillStyle = 'white';
-    ctx.font = '18px Arial';
+    ctx.font = '20px Arial';
     ctx.fillText('• Humans: Survive until the timer runs out. Collect coins to buy abilities and items.', contentX, currentY);
-    currentY += 30;
+    currentY += 35;
     ctx.fillText('• Zombies: Infect all humans before the time runs out.', contentX, currentY);
-    currentY += 60;
+    currentY += 70;
 
-    // Controls
-    ctx.font = 'bold 28px Arial';
+    ctx.font = 'bold 30px Arial';
     ctx.fillText('Controls', contentX, currentY);
-    currentY += 10;
+    currentY += 15;
     ctx.fillStyle = '#2ecc71';
-    ctx.fillRect(contentX, currentY, 120, 3); // Underline
-    currentY += 40;
+    ctx.fillRect(contentX, currentY, 130, 3);
+    currentY += 45;
 
     ctx.fillStyle = 'white';
-    ctx.font = '18px Arial';
+    ctx.font = '20px Arial';
     const controls = [
         ['W, A, S, D / Arrow Keys', 'Move your character.'],
         ['Mouse', 'Aim your character or abilities.'],
@@ -976,20 +949,14 @@ function drawHowToPlayTab() {
         ['Enter', 'Open or send a chat message.'],
     ];
 
-    const keyColWidth = 280;
+    const keyColWidth = 320;
     for (const [key, desc] of controls) {
-        ctx.font = 'bold 18px Arial';
+        ctx.font = 'bold 20px Arial';
         ctx.fillText(key + ':', contentX, currentY);
-        ctx.font = '18px Arial';
+        ctx.font = '20px Arial';
         ctx.fillText(desc, contentX + keyColWidth, currentY);
-        currentY += 30;
+        currentY += 35;
     }
-
-    // Close instruction
-    ctx.textAlign = 'center';
-    ctx.font = '22px Arial';
-    ctx.fillStyle = '#aaa';
-    ctx.fillText('Press "X" to close', canvas.width / 2, tabY + tabHeight - 35);
 }
 
 
@@ -1046,9 +1013,6 @@ function drawHudText(me) {
         } else if (me.role === 'human') {
             roleText = 'SURVIVE!';
             roleColor = 'blue';
-        } else if (me.role === 'neutral') {
-            roleText = 'TROLL!';
-            roleColor = '#f1c40f';
         }
         ctx.fillStyle = roleColor;
         ctx.fillText(roleText, canvas.width / 2, 90);
@@ -1057,33 +1021,34 @@ function drawHudText(me) {
     ctx.font = '30px Arial';
     ctx.fillStyle = 'gold';
     ctx.textAlign = 'right';
-    ctx.fillText(`🪙 ${me.coins}`, canvas.width - 35, 52);
+    ctx.fillText(`💎 ${Math.floor(me.gems)}`, canvas.width - 35, 52);
 
     ctx.textAlign = 'right';
     ctx.fillStyle = 'white';
     ctx.font = '24px Arial';
 
-    const abilityText = me.role === 'zombie' ? (me.zombieAbility || ' ').toUpperCase() : me.activeAbility.toUpperCase();
-    ctx.fillText(`SPEED: ${Math.max(0, me.speed - 1).toFixed(2)}`, canvas.width - 30, canvas.height - 25);
-    ctx.fillText(`ABILITY: ${abilityText}`, canvas.width - 30, canvas.height - 60);
+    const functionText = me.role === 'zombie' ? (me.zombieAbility || ' ').toUpperCase() : me.activeFunction.toUpperCase();
+    const displayedSpeed = Math.min(3, Math.max(0, me.speed - 1));
+    ctx.fillText(`SPEED: ${displayedSpeed.toFixed(2)}`, canvas.width - 30, canvas.height - 25);
+    ctx.fillText(`${functionText}`, canvas.width - 30, canvas.height - 60);
 
     const yPos = canvas.height - 95;
 
     if (me.role !== 'zombie') {
-        if (me.role === 'neutral' && me.neutralAbility === 'troll' && me.inventory && me.selectedSlot !== undefined) {
-            const item = me.inventory[me.selectedSlot];
-            if (item && item.id === 'cannon') {
-                if (Date.now() < (item.cooldownUntil || 0)) {
-                    const remaining = Math.ceil((item.cooldownUntil - Date.now()) / 1000);
-                    ctx.fillStyle = 'red';
-                    ctx.fillText(`CANNON: ${remaining}s`, canvas.width - 30, yPos);
-                } else {
-                    ctx.fillStyle = 'lightgreen';
-                    ctx.fillText(`CANNON: READY`, canvas.width - 30, yPos);
-                }
+        const bowItem = me.inventory.find(i => i && i.id === 'bow');
+        const cannonItem = me.inventory[me.selectedSlot];
+
+        if (cannonItem && cannonItem.id === 'cannon') {
+            if (Date.now() < (cannonItem.cooldownUntil || 0)) {
+                const remaining = Math.ceil((cannonItem.cooldownUntil - Date.now()) / 1000);
+                ctx.fillStyle = 'red';
+                ctx.fillText(`CANNON: ${remaining}s`, canvas.width - 30, yPos);
+            } else {
+                ctx.fillStyle = 'lightgreen';
+                ctx.fillText(`CANNON: READY`, canvas.width - 30, yPos);
             }
-        } else if (me.activeAbility === 'archer') {
-            ctx.fillText(`AMMO: ${me.arrowAmmo}`, canvas.width - 30, yPos);
+        } else if (bowItem) {
+            ctx.fillText(`AMMO: ${bowItem.ammo}`, canvas.width - 30, yPos);
         } else if (me.inventory && me.inventory.some(i => i && i.id === 'drone') && gameState.drones[me.id]) {
             ctx.fillText(`GRENADES: ${gameState.drones[me.id].ammo}`, canvas.width - 30, yPos);
         } else if (me.inventory && me.inventory.some(i => i && i.id === 'gravityGlove')) {
@@ -1091,7 +1056,7 @@ function drawHudText(me) {
             ctx.fillStyle = 'white';
             const uses = (glove && typeof glove.uses === 'number') ? glove.uses : 'N/A';
             ctx.fillText(`GLOVE USES: ${uses}`, canvas.width - 30, yPos);
-        } else if (me.activeAbility === 'engineer') {
+        } else if (me.activeFunction === 'engineer') {
             if (Date.now() < (me.engineerCooldownUntil || 0)) {
                 const remaining = Math.ceil((me.engineerCooldownUntil - Date.now()) / 1000);
                 ctx.fillStyle = 'red';
@@ -1100,13 +1065,10 @@ function drawHudText(me) {
                 ctx.fillStyle = 'lightgreen';
                 ctx.fillText(`DUCTS: READY`, canvas.width - 30, yPos);
             }
-        } else if (me.activeAbility === 'athlete') {
+        } else if (me.activeFunction === 'athlete') {
             ctx.fillStyle = me.sprintAvailable ? 'lightgreen' : 'red';
             ctx.fillText(`SPRINT: ${me.sprintAvailable ? 'READY' : 'RECHARGING'}`, canvas.width - 30, yPos);
-        } else if (me.activeAbility === 'illusionist') {
-            ctx.fillStyle = me.illusionistAvailable ? 'lightgreen' : 'red';
-            ctx.fillText(`ILLUSION: ${me.illusionistAvailable ? 'READY' : 'RECHARGING'}`, canvas.width - 30, yPos);
-        } else if (me.activeAbility === 'butterfly') {
+        } else if (me.activeFunction === 'butterfly') {
             let statusText;
             if (me.isFlying) {
                 statusText = 'FLYING!';
@@ -1119,7 +1081,7 @@ function drawHudText(me) {
                 ctx.fillStyle = 'lightgreen';
             }
             ctx.fillText(`BUTTERFLY: ${statusText}`, canvas.width - 30, yPos);
-        } else if (me.activeAbility === 'spy') {
+        } else if (me.activeFunction === 'spy') {
             let statusText;
             if (me.isSpying) {
                 statusText = 'ACTIVE';
@@ -1136,14 +1098,14 @@ function drawHudText(me) {
                 ctx.fillStyle = 'darkred';
             }
             ctx.fillText(`SPYING: ${statusText}`, canvas.width - 30, yPos);
-            ctx.font = '20px Arial';
-            ctx.fillStyle = 'white';
-            ctx.fillText(`USES LEFT: ${me.spyUsesLeft}`, canvas.width - 30, yPos + 30);
         }
     } else {
+        // <-- NOVO: HUD da Mina
         ctx.fillStyle = 'white';
         if (me.zombieAbility === 'trap') {
             ctx.fillText(`TRAPS: ${me.trapsLeft}`, canvas.width - 30, yPos);
+        } else if (me.zombieAbility === 'mine') {
+            ctx.fillText(`MINES: ${me.minesLeft}`, canvas.width - 30, yPos);
         }
     }
 }
@@ -1153,58 +1115,7 @@ function drawInventory() {
     const me = gameState.players[myId];
     if (!me || me.role === 'zombie' || !me.inventory) return;
 
-    if (me.role === 'neutral') {
-        if (me.neutralAbility !== 'troll') return;
-
-        const slotSize = 80;
-        const gap = 15;
-        const numSlots = 1;
-        const totalWidth = (numSlots * slotSize) + ((numSlots - 1) * gap);
-        const startX = canvas.width / 2 - totalWidth / 2;
-        const slotY = canvas.height - slotSize - 20;
-
-        for (let i = 0; i < numSlots; i++) {
-            const slotX = startX + i * (slotSize + gap);
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-            ctx.strokeStyle = (me.selectedSlot === i) ? '#f1c40f' : 'rgba(255, 255, 255, 0.5)';
-            ctx.lineWidth = 4;
-            ctx.beginPath();
-            ctx.roundRect(slotX, slotY, slotSize, slotSize, [10]);
-            ctx.fill();
-            ctx.stroke();
-
-            const item = me.inventory[i];
-            if (item) {
-                const sprite = itemSprites[item.id];
-                if (sprite && sprite.complete) {
-                    const itemAspectRatio = sprite.width / sprite.height;
-                    let drawWidth = slotSize * 0.8;
-                    let drawHeight = drawWidth / itemAspectRatio;
-                    if (drawHeight > slotSize * 0.8) {
-                        drawHeight = slotSize * 0.8;
-                        drawWidth = drawHeight * itemAspectRatio;
-                    }
-                    const drawX = slotX + (slotSize - drawWidth) / 2;
-                    const drawY = slotY + (slotSize - drawHeight) / 2;
-                    ctx.drawImage(sprite, drawX, drawY, drawWidth, drawHeight);
-
-                    if (item.quantity > 0) {
-                        ctx.fillStyle = 'white';
-                        ctx.strokeStyle = 'black';
-                        ctx.lineWidth = 3;
-                        ctx.font = 'bold 20px Arial';
-                        ctx.textAlign = 'right';
-                        ctx.strokeText(item.quantity, slotX + slotSize - 8, slotY + slotSize - 8);
-                        ctx.fillText(item.quantity, slotX + slotSize - 8, slotY + slotSize - 8);
-                    }
-                }
-            }
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
-            ctx.font = '16px Arial';
-            ctx.textAlign = 'left';
-            ctx.fillText(i + 1, slotX + 8, slotY + 20);
-        }
-    } else if (me.role === 'human') {
+    if (me.role === 'human') {
         const numSlots = me.inventorySlots || 1;
         const slotSize = 80;
         const gap = 15;
@@ -1303,8 +1214,6 @@ function drawMenu() {
         drawZombieMenu(me);
     } else if (me.role === 'human') {
         drawHumanMenu(me);
-    } else if (me.role === 'neutral') {
-        drawNeutralMenu(me);
     }
 }
 
@@ -1330,13 +1239,13 @@ function drawZombieMenu(me) {
 
     if (activeMenuTab === 'zombie_items') {
         ctx.font = '50px Arial';
-        ctx.fillText('ZOMBIE ITEMS', canvas.width / 2, menuY + 140);
+        ctx.fillText('ITEMS', canvas.width / 2, menuY + 140);
         if (!me.zombieAbility) {
             const {
                 buttons
             } = getZombieItemsLayout();
             buttons.forEach(btn => {
-                const canAfford = me.coins >= btn.price;
+                const canAfford = me.gems >= btn.price;
                 ctx.fillStyle = canAfford ? '#4B0000' : '#1a0000';
                 ctx.fillRect(btn.rect.x, btn.rect.y, btn.rect.width, btn.rect.height);
                 ctx.strokeStyle = canAfford ? '#FF4500' : '#666';
@@ -1351,7 +1260,7 @@ function drawZombieMenu(me) {
                 ctx.fillText(btn.description, btn.rect.x + btn.rect.width / 2, btn.rect.y + 65);
                 ctx.font = '24px Arial';
                 ctx.fillStyle = canAfford ? 'gold' : 'red';
-                const costText = `🪙 ${btn.price}`;
+                const costText = `💎 ${btn.price}`;
                 ctx.textAlign = 'right';
                 ctx.fillText(costText, btn.rect.x + btn.rect.width - 15, btn.rect.y + btn.rect.height - 15);
             });
@@ -1373,7 +1282,7 @@ function drawHumanMenu(me) {
         const distance = Math.sqrt(dx * dx + dy * dy);
         isNearATM = distance < 250;
     }
-    if (!isNearATM && activeMenuTab === 'rare_items') activeMenuTab = 'items';
+    if (!isNearATM && activeMenuTab === 'exclusive_items') activeMenuTab = 'items';
 
     const menuWidth = 1500,
         menuHeight = 900;
@@ -1386,44 +1295,44 @@ function drawHumanMenu(me) {
     ctx.lineWidth = 5;
     ctx.strokeRect(menuX, menuY, menuWidth, menuHeight);
 
-    const abilitiesTabBtn = getAbilitiesTabRect();
+    const functionsTabBtn = getFunctionsTabRect();
     const itemsTabBtn = getItemsTabRect();
-    ctx.fillStyle = activeMenuTab === 'abilities' ? '#000000ff' : '#444';
-    ctx.fillRect(abilitiesTabBtn.x, abilitiesTabBtn.y, abilitiesTabBtn.width, abilitiesTabBtn.height);
-    ctx.fillStyle = activeMenuTab === 'items' ? '#000000ff' : '#444';
+    ctx.fillStyle = activeMenuTab === 'functions' ? '#000000ff' : '#232323ff';
+    ctx.fillRect(functionsTabBtn.x, functionsTabBtn.y, functionsTabBtn.width, functionsTabBtn.height);
+    ctx.fillStyle = activeMenuTab === 'items' ? '#000000ff' : '#232323ff';
     ctx.fillRect(itemsTabBtn.x, itemsTabBtn.y, itemsTabBtn.width, itemsTabBtn.height);
     ctx.fillStyle = 'white';
     ctx.font = '30px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText('ABILITIES', abilitiesTabBtn.x + abilitiesTabBtn.width / 2, abilitiesTabBtn.y + 40);
+    ctx.fillText('FUNCTIONS', functionsTabBtn.x + functionsTabBtn.width / 2, functionsTabBtn.y + 40);
     ctx.fillText('ITEMS', itemsTabBtn.x + itemsTabBtn.width / 2, itemsTabBtn.y + 40);
 
     if (isNearATM) {
         const rareItemsTabBtn = getRareItemsTabRect();
-        ctx.fillStyle = activeMenuTab === 'rare_items' ? '#000000ff' : '#444';
+        ctx.fillStyle = activeMenuTab === 'exclusive_items' ? '#000000ff' : '#232323ff';
         ctx.fillRect(rareItemsTabBtn.x, rareItemsTabBtn.y, rareItemsTabBtn.width, rareItemsTabBtn.height);
         ctx.fillStyle = 'white';
-        ctx.fillText('RARE ITEMS', rareItemsTabBtn.x + rareItemsTabBtn.width / 2, rareItemsTabBtn.y + 40);
+        ctx.fillText('EXCLUSIVE', rareItemsTabBtn.x + rareItemsTabBtn.width / 2, rareItemsTabBtn.y + 40);
     }
 
-    if (activeMenuTab === 'abilities') {
+    if (activeMenuTab === 'functions') {
         ctx.font = '50px Arial';
-        ctx.fillText('CHOOSE AN ABILITY', canvas.width / 2, menuY + 140);
+        ctx.fillText('CHOOSE A FUNCTION', canvas.width / 2, menuY + 140);
         if (gameState.gamePhase === 'waiting') {
             ctx.font = '30px Arial';
             ctx.fillStyle = 'orange';
-            ctx.fillText('Wait for the round to start to choose an ability!', canvas.width / 2, menuY + 180);
+            ctx.fillText('Wait for the round to start to choose a function!', canvas.width / 2, menuY + 180);
         }
 
-        if (me.activeAbility === ' ') {
+        if (me.activeFunction === ' ') {
             const {
                 buttons
-            } = getAbilitiesLayout();
+            } = getFunctionsLayout();
             buttons.forEach(btn => {
                 const isLocked = gameState.gamePhase === 'waiting';
-                const isTaken = gameState.takenAbilities.includes(btn.ability);
-                const cost = gameState.abilityCosts[btn.ability] || 0;
-                const canAfford = me.coins >= cost;
+                const isTaken = gameState.takenFunctions.includes(btn.func);
+                const cost = gameState.functionCosts[btn.func] || 0;
+                const canAfford = me.gems >= cost;
                 ctx.fillStyle = isTaken || isLocked ? '#333' : (canAfford ? '#282828' : '#1a1a1a');
                 ctx.fillRect(btn.rect.x, btn.rect.y, btn.rect.width, btn.rect.height);
                 ctx.strokeStyle = isTaken || isLocked ? '#555' : (canAfford ? 'white' : '#666');
@@ -1438,7 +1347,7 @@ function drawHumanMenu(me) {
                 ctx.fillText(btn.description, btn.rect.x + btn.rect.width / 2, btn.rect.y + 65);
                 ctx.font = '24px Arial';
                 ctx.fillStyle = canAfford && !isLocked ? 'gold' : 'red';
-                const costText = `🪙 ${cost}`;
+                const costText = `💎 ${cost}`;
                 ctx.textAlign = 'right';
                 ctx.fillText(costText, btn.rect.x + btn.rect.width - 15, btn.rect.y + btn.rect.height - 15);
                 if (isTaken) {
@@ -1452,13 +1361,13 @@ function drawHumanMenu(me) {
             ctx.font = '40px Arial';
             ctx.fillStyle = 'grey';
             ctx.textAlign = 'center';
-            ctx.fillText('ABILITY ALREADY CHOSEN!', canvas.width / 2, canvas.height / 2);
+            ctx.fillText('FUNCTION ALREADY CHOSEN!', canvas.width / 2, canvas.height / 2);
         }
-    } else if (activeMenuTab === 'items' || activeMenuTab === 'rare_items') {
-        const isRare = activeMenuTab === 'rare_items';
+    } else if (activeMenuTab === 'items' || activeMenuTab === 'exclusive_items') {
+        const isRare = activeMenuTab === 'exclusive_items';
         ctx.font = '50px Arial';
         ctx.textAlign = 'center';
-        ctx.fillText(isRare ? 'RARE ITEMS - ATM' : 'ITEMS SHOP', canvas.width / 2, menuY + 140);
+        ctx.fillText(isRare ? 'EXCLUSIVE ITEMS' : 'ITEMS SHOP', canvas.width / 2, menuY + 140);
         const hasCard = me.inventory && me.inventory.some(i => i && i.id === 'card');
         if (isRare && !hasCard) {
             ctx.font = '30px Arial';
@@ -1469,9 +1378,10 @@ function drawHumanMenu(me) {
             buttons
         } = isRare ? getRareItemsLayout() : getItemsLayout();
         buttons.forEach(btn => {
-            const canAfford = me.coins >= btn.price;
+            const canAfford = me.gems >= btn.price;
             const alreadyOwned = me.inventory && me.inventory.some(i => i && i.id === btn.id);
-            const inventoryFull = me.inventory.filter(i => i).length >= me.inventorySlots;
+            const inventoryWithoutCard = me.inventory.filter(i => i && i.id !== 'card');
+            const inventoryFull = inventoryWithoutCard.length >= me.inventorySlots;
             const alreadyUpgraded = me.inventorySlots > 1;
 
             let canBuy = false;
@@ -1510,7 +1420,7 @@ function drawHumanMenu(me) {
             ctx.fillText(btn.description, btn.rect.x + 130, btn.rect.y + 85);
             ctx.font = '24px Arial';
             ctx.fillStyle = canAfford ? 'gold' : 'red';
-            const costText = `🪙 ${btn.price}`;
+            const costText = `💎 ${btn.price}`;
             ctx.textAlign = 'right';
             ctx.fillText(costText, btn.rect.x + btn.rect.width - 20, btn.rect.y + btn.rect.height - 20);
             if (alreadyOwned || (btn.id === 'inventoryUpgrade' && alreadyUpgraded)) {
@@ -1527,119 +1437,23 @@ function drawHumanMenu(me) {
     ctx.fillText('PRESS "B" TO CLOSE', canvas.width / 2 + 580, menuY + menuHeight - 20);
 }
 
-function drawNeutralMenu(me) {
-    const menuWidth = 1500,
-        menuHeight = 900;
-    const menuX = (canvas.width - menuWidth) / 2,
-        menuY = (canvas.height - menuHeight) / 2;
-
-    ctx.fillStyle = 'rgba(40, 40, 0, 0.90)';
-    ctx.fillRect(menuX, menuY, menuWidth, menuHeight);
-    ctx.strokeStyle = '#f1c40f';
-    ctx.lineWidth = 5;
-    ctx.strokeRect(menuX, menuY, menuWidth, menuHeight);
-
-    const abilitiesTabBtn = getNeutralAbilitiesTabRect();
-    ctx.fillStyle = activeMenuTab === 'neutral_abilities' ? '#4a4a00' : '#808000';
-    ctx.fillRect(abilitiesTabBtn.x, abilitiesTabBtn.y, abilitiesTabBtn.width, abilitiesTabBtn.height);
-    ctx.fillStyle = 'white';
-    ctx.font = '30px Arial';
-    ctx.textAlign = 'center';
-    ctx.fillText('ABILITIES', abilitiesTabBtn.x + abilitiesTabBtn.width / 2, abilitiesTabBtn.y + 40);
-
-    if (activeMenuTab === 'neutral_abilities') {
-        ctx.font = '50px Arial';
-        ctx.fillText('NEUTRAL ABILITIES', canvas.width / 2, menuY + 140);
-
-        const {
-            buttons
-        } = getNeutralAbilitiesLayout();
-        buttons.forEach(btn => {
-            const isMyAbility = (me.neutralAbility === btn.ability);
-            ctx.fillStyle = isMyAbility ? '#4a4a00' : '#1a1a00';
-            ctx.fillRect(btn.rect.x, btn.rect.y, btn.rect.width, btn.rect.height);
-            ctx.strokeStyle = isMyAbility ? '#f1c40f' : '#666';
-            ctx.lineWidth = 2;
-            ctx.strokeRect(btn.rect.x, btn.rect.y, btn.rect.width, btn.rect.height);
-            ctx.textAlign = 'center';
-            ctx.font = '20px Arial';
-            ctx.fillStyle = isMyAbility ? 'white' : '#999';
-            ctx.fillText(btn.text, btn.rect.x + btn.rect.width / 2, btn.rect.y + 35);
-            ctx.font = '14px Arial';
-            ctx.fillStyle = isMyAbility ? '#ccc' : '#888';
-            ctx.fillText(btn.description, btn.rect.x + btn.rect.width / 2, btn.rect.y + 65);
-
-            if (isMyAbility) {
-                ctx.fillStyle = 'rgba(0, 255, 0, 0.7)';
-                ctx.font = 'bold 24px Arial';
-                ctx.fillText('ACTIVE', btn.rect.x + btn.rect.width / 2, btn.rect.y + 95);
-            }
-        });
-    }
-    ctx.font = '20px Arial';
-    ctx.fillStyle = 'white';
-    ctx.textAlign = 'center';
-    ctx.fillText('PRESS "B" TO CLOSE', canvas.width / 2 + 580, menuY + menuHeight - 20);
-}
-
-
-// =================================================================
-// HELPERS
-// =================================================================
-function getAbilitiesLayout() {
-    const abilities = [{
+function getFunctionsLayout() {
+    const functions = [{
         text: 'ATHLETE',
-        ability: 'athlete',
+        func: 'athlete',
         description: 'Sprint for a short duration.'
     }, {
-        text: 'ARCHER',
-        ability: 'archer',
-        description: 'Shoot arrows to slow enemies.'
-    }, {
         text: 'ENGINEER',
-        ability: 'engineer',
+        func: 'engineer',
         description: 'Travel instantly between ducts.'
     }, {
         text: 'SPY',
-        ability: 'spy',
+        func: 'spy',
         description: 'Disguise as a zombie.'
     }, {
-        text: 'ILLUSIONIST',
-        ability: 'illusionist',
-        description: 'Creates an illusion to mislead.'
-    }, {
         text: 'BUTTERFLY',
-        ability: 'butterfly',
+        func: 'butterfly',
         description: 'When caught, get a 10s flight.'
-    }, ];
-    const menuWidth = 1500,
-        menuHeight = 900;
-    const menuX = (canvas.width - menuWidth) / 2,
-        menuY = (canvas.height - menuHeight) / 2;
-    const cols = 4,
-        btnWidth = 320,
-        btnHeight = 120,
-        gap = 40;
-    const totalGridWidth = cols * btnWidth + (cols - 1) * gap;
-    const startX = menuX + (menuWidth - totalGridWidth) / 2;
-    const startY = menuY + 200;
-    return {
-        buttons: abilities.map((ability, index) => ({ ...ability,
-            rect: {
-                x: startX + (index % cols) * (btnWidth + gap),
-                y: startY + Math.floor(index / cols) * (btnHeight + gap),
-                width: btnWidth,
-                height: btnHeight
-            }
-        }))
-    };
-}
-
-function getNeutralAbilitiesLayout() {
-    const abilities = [{
-        text: 'TROLL',
-        ability: 'troll',
-        description: 'Wreak havoc. Starts with a powerful cannon.'
     }];
     const menuWidth = 1500,
         menuHeight = 900;
@@ -1653,7 +1467,7 @@ function getNeutralAbilitiesLayout() {
     const startX = menuX + (menuWidth - totalGridWidth) / 2;
     const startY = menuY + 200;
     return {
-        buttons: abilities.map((ability, index) => ({ ...ability,
+        buttons: functions.map((func, index) => ({ ...func,
             rect: {
                 x: startX + (index % cols) * (btnWidth + gap),
                 y: startY + Math.floor(index / cols) * (btnHeight + gap),
@@ -1664,14 +1478,18 @@ function getNeutralAbilitiesLayout() {
     };
 }
 
-
 function getZombieItemsLayout() {
     const abilities = [{
         id: 'trap',
         text: 'Trap',
         description: 'Place a trap to immobilize humans.',
         price: 50
-    }, ];
+    }, { // <-- NOVO ITEM
+        id: 'mine',
+        text: 'Explosive Mine',
+        description: 'Place a mine that explodes on contact.',
+        price: 50
+    }];
     const menuWidth = 1500,
         menuHeight = 900;
     const menuX = (canvas.width - menuWidth) / 2,
@@ -1697,11 +1515,11 @@ function getZombieItemsLayout() {
 
 function getItemsLayout() {
     const items = [{
-        id: 'Drum',
-        text: 'DRUM',
-        description: "Pushes objects with more force",
+        id: 'normalGlove',
+        text: 'NORMAL GLOVE',
+        description: "Pushes objects with more force.",
         price: 100,
-        sprite: drumSprite
+        sprite: normalGloveSprite
     }, {
         id: 'antidote',
         text: 'ANTIDOTE',
@@ -1709,12 +1527,12 @@ function getItemsLayout() {
         price: 20,
         sprite: antidoteSprite
     }, {
-        id: 'zoom',
-        text: 'ZOOM',
-        description: 'Zooms out the camera by 20%.',
-        price: 150,
-        sprite: zoomSprite
-    }, ];
+        id: 'shield',
+        text: 'SHIELD',
+        description: 'Blocks zombie attacks.',
+        price: 200,
+        sprite: shieldSprite
+    }];
     const menuWidth = 1500,
         menuHeight = 900;
     const menuX = (canvas.width - menuWidth) / 2,
@@ -1741,8 +1559,8 @@ function getItemsLayout() {
 function getRareItemsLayout() {
     const rareItems = [{
         id: 'inventoryUpgrade',
-        text: 'INVENTORY UPGRADE',
-        description: 'Permanently unlocks a second inventory slot.',
+        text: 'SLOT',
+        description: 'Unlocks a second slot.',
         price: 500,
         sprite: inventoryUpgradeSprite
     }, {
@@ -1773,9 +1591,21 @@ function getRareItemsLayout() {
         id: 'portals',
         text: 'PORTALS',
         description: 'Place 2 portals for instant travel.',
-        price: 100,
+        price: 200,
         sprite: portalsSprite
-    }, ];
+    }, {
+        id: 'cannon',
+        text: 'CANNON',
+        description: 'Fires a powerful cannonball.',
+        price: 500,
+        sprite: cannonSprite
+    }, {
+        id: 'bow',
+        text: 'BOW',
+        description: 'Shoot arrows to slow enemies.',
+        price: 200,
+        sprite: bowSprite
+    }];
     const menuWidth = 1500,
         menuHeight = 900;
     const menuX = (canvas.width - menuWidth) / 2,
@@ -1805,8 +1635,7 @@ function isClickInside(pos, rect) {
 
 function getPlayerAngle(player) {
     if (!player) return 0;
-    const hasZoom = player.inventory && player.inventory.find(i => i && i.id === 'zoom');
-    const zoomLevel = hasZoom ? 0.8 : 1.0;
+    const zoomLevel = 0.67;
     const cx = canvas.width / (2 * zoomLevel);
     const cy = canvas.height / (2 * zoomLevel);
     const dx = mouse.x / zoomLevel - cx;
@@ -1814,7 +1643,7 @@ function getPlayerAngle(player) {
     return Math.atan2(dy, dx);
 }
 
-function getAbilitiesTabRect() {
+function getFunctionsTabRect() {
     const mX = (canvas.width - 1500) / 2,
         mY = (canvas.height - 900) / 2;
     return {
@@ -1858,27 +1687,11 @@ function getZombieAbilitiesTabRect() {
     };
 }
 
-function getNeutralAbilitiesTabRect() {
-    const mX = (canvas.width - 1500) / 2,
-        mY = (canvas.height - 900) / 2;
-    return {
-        x: mX + 10,
-        y: mY + 10,
-        width: 200,
-        height: 60
-    };
-}
-
-
-// =================================================================
-// GAME LOOP
-// =================================================================
 function gameLoop() {
     if (myId && gameState.players[myId] && !document.getElementById('nickname-container')) {
         const me = gameState.players[myId];
         const rot = getPlayerAngle(me);
-        const hasZoom = me.inventory && me.inventory.find(i => i && i.id === 'zoom');
-        const zoomLevel = hasZoom ? 0.8 : 1.0;
+        const zoomLevel = 0.67;
         const cameraX = (me.x + me.width / 2) - canvas.width / (2 * zoomLevel);
         const cameraY = (me.y + me.height / 2) - canvas.height / (2 * zoomLevel);
         const worldMouse = {
