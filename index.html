@@ -4,6 +4,19 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Infestation.io</title>
+    <style>
+        /* Adicionado para reforçar o bloqueio de zoom e rolagem */
+        html, body {
+            overflow: hidden; /* Impede a rolagem da página */
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            width: 100%;
+        }
+        canvas {
+            display: block; /* Remove espaços extras abaixo do canvas */
+        }
+    </style>
 </head>
 <body>
     <canvas id="gameCanvas"></canvas>
