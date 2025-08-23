@@ -76,6 +76,11 @@ const runningTennisSprite = loadImage('Sprites/runningTennis.png');
 const bowSprite = loadImage('Sprites/Bow.png');
 const arrowSprite = loadImage('Sprites/Arrow.png'); // Imagem da flecha
 const sharkSprite = loadImage('Sprites/Shark.png'); // Imagem do tubarão
+const gemSprite = loadImage('Sprites/Gem.png'); // Sprite da gema
+const angelWingsSprite = loadImage('Sprites/AngelWings.png'); // Sprite da Asa de Anjo
+const wallSprite = loadImage('Sprites/BrickWall.png'); // Sprite da parede da casa
+const wallSprite2 = loadImage('Sprites/BrickWall2.png'); // Sprite da parede da garagem
+// Ponto 1: Lógica da auréola removida. A linha do 'haloSprite' foi deletada.
 
 const itemSprites = {
     skateboard: skateboardSprite,
@@ -90,7 +95,8 @@ const itemSprites = {
     portals: portalsSprite,
     inventoryUpgrade: inventoryUpgradeSprite,
     runningTennis: runningTennisSprite,
-    bow: bowSprite
+    bow: bowSprite,
+    angelWings: angelWingsSprite
 };
 
 // Objeto unificado para sprites de objetos móveis
@@ -216,7 +222,7 @@ window.addEventListener('keydown', function(event) {
         }
     }
 
-    if (me && me.carryingObject && me.inventory.some(i => i ?.id === 'gravityGlove')) {
+    if (me && me.carryingObject && me.inventory.some(i => i?.id === 'gravityGlove')) {
         if (key === 'q') {
             socket.emit('rotateCarriedObject', 'left');
         } else if (key === 'e') {
@@ -263,7 +269,13 @@ window.addEventListener('keydown', function(event) {
             break;
         case 'e':
             const selectedItem = me && me.inventory && me.inventory[me.selectedSlot];
-            if (me && me.role === 'zombie') {
+            const hasWings = me && me.inventory.some(i => i?.id === 'angelWings');
+
+            if (hasWings) {
+                socket.emit('playerAction', {
+                    type: 'toggle_angel_wings_flight'
+                });
+            } else if (me && me.role === 'zombie') {
                 socket.emit('playerAction', {
                     type: 'zombie_item'
                 });
@@ -278,7 +290,7 @@ window.addEventListener('keydown', function(event) {
             } else {
                 // A rotação com 'E' foi movida para cima, apenas para a gravity glove
                 // Esta ação de interação permanece para pegar itens etc.
-                const hasGravityGlove = me && me.inventory.some(i => i ?.id === 'gravityGlove');
+                const hasGravityGlove = me && me.inventory.some(i => i?.id === 'gravityGlove');
                 if (!hasGravityGlove || (hasGravityGlove && !me.carryingObject)) {
                     socket.emit('playerAction', {
                         type: 'interact'
@@ -525,8 +537,8 @@ function showNicknameMenu() {
 
     const input = document.createElement('input');
     input.type = 'text';
-    input.maxLength = 15;
-    input.placeholder = 'Max 15 characters';
+    input.maxLength = 10;
+    input.placeholder = 'Max 10 characters';
     Object.assign(input.style, {
         padding: '12px',
         fontSize: '18px',
@@ -705,20 +717,63 @@ function draw() {
         }
     }
 
-    ctx.fillStyle = '#6d6356ff';
-    ctx.strokeStyle = '#393431ff';
-    ctx.lineWidth = 20;
+    ctx.fillStyle = '#000000ff';
+    ctx.strokeStyle = '#000000ff';
+    ctx.lineWidth = 10;
     for (const wall of gameState.house.walls) {
         ctx.fillRect(wall.x, wall.y, wall.width, wall.height);
         ctx.strokeRect(wall.x, wall.y, wall.width, wall.height);
     }
 
-    ctx.fillStyle = '#606060';
-    ctx.strokeStyle = '#404040';
-    ctx.lineWidth = 20;
+    // Adiciona a textura sobre as paredes da casa
+    if (wallSprite.complete && wallSprite.naturalWidth > 0) {
+        const spriteSize = 74;
+        for (const wall of gameState.house.walls) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(wall.x, wall.y, wall.width, wall.height);
+            ctx.clip(); // Garante que a textura não saia dos limites da parede
+
+            // Alinha o padrão a uma grade para que paredes adjacentes se conectem visualmente
+            const startX = wall.x - (wall.x % spriteSize);
+            const startY = wall.y - (wall.y % spriteSize);
+
+            for (let y = startY; y < wall.y + wall.height; y += spriteSize) {
+                for (let x = startX; x < wall.x + wall.width; x += spriteSize) {
+                    ctx.drawImage(wallSprite, x, y, spriteSize, spriteSize);
+                }
+            }
+            ctx.restore(); // Remove o clip para a próxima parede
+        }
+    }
+
+    ctx.fillStyle = '#000000ff';
+    ctx.strokeStyle = '#000000ff';
+    ctx.lineWidth = 10;
     for (const wall of gameState.garage.walls) {
         ctx.fillRect(wall.x, wall.y, wall.width, wall.height);
         ctx.strokeRect(wall.x, wall.y, wall.width, wall.height);
+    }
+
+    // Adiciona a textura sobre as paredes da garagem
+    if (wallSprite2.complete && wallSprite2.naturalWidth > 0) {
+        const spriteSize = 74;
+        for (const wall of gameState.garage.walls) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(wall.x, wall.y, wall.width, wall.height);
+            ctx.clip();
+
+            const startX = wall.x - (wall.x % spriteSize);
+            const startY = wall.y - (wall.y % spriteSize);
+
+            for (let y = startY; y < wall.y + wall.height; y += spriteSize) {
+                for (let x = startX; x < wall.x + wall.width; x += spriteSize) {
+                    ctx.drawImage(wallSprite2, x, y, spriteSize, spriteSize);
+                }
+            }
+            ctx.restore();
+        }
     }
 
     if (gameState.obstacles) {
@@ -731,11 +786,7 @@ function draw() {
         }
     }
 
-    ctx.strokeStyle = '#888888';
-    ctx.lineWidth = 3;
-    for (const wall of gameState.garage.walls) {
-        ctx.strokeRect(wall.x, wall.y, wall.width, wall.height);
-    }
+    // O bloco de código que redesenhava o contorno da garagem foi removido daqui.
 
     if (gameState.obstacles) {
         ctx.strokeStyle = '#c38a51ff';
@@ -752,11 +803,17 @@ function draw() {
             continue;
         }
 
+        const hasAngelWings = player.inventory && player.inventory.some(i => i && i.id === 'angelWings');
+
         ctx.save();
-        if (player.isFlying) {
+        if (player.isFlyingWithWings) {
+            ctx.shadowColor = 'rgba(255, 255, 200, 0.9)';
+            ctx.shadowBlur = 50;
+        } else if (player.isFlying) { // Mantém o brilho da borboleta
             ctx.shadowColor = 'rgba(255, 255, 255, 0.8)';
             ctx.shadowBlur = 30;
         }
+
         if (player.isTrapped) {
             ctx.fillStyle = 'red';
             ctx.font = 'bold 30px Arial';
@@ -781,8 +838,15 @@ function draw() {
             ctx.drawImage(human, -player.width / 2, -player.height / 2, player.width, player.height);
         }
 
+        if (hasAngelWings && angelWingsSprite.complete) {
+            // Ponto 2: Diminuir drasticamente o tamanho da asa de anjo e reposicionar.
+            const wingWidth = player.width * 0.7;
+            const wingHeight = player.height * 0.7;
+            ctx.drawImage(angelWingsSprite, -wingWidth * 0.8, -wingHeight / 2, wingWidth, wingHeight);
+        }
+
         const selectedItem = player.inventory[player.selectedSlot];
-        if (player.role === 'human' && selectedItem ?.id === 'cannon') {
+        if (player.role === 'human' && selectedItem?.id === 'cannon') {
             if (cannonSprite.complete) {
                 const itemWidth = 80;
                 const itemHeight = 50;
@@ -805,6 +869,8 @@ function draw() {
         }
 
         ctx.restore();
+
+        // Ponto 1: Lógica da auréola removida. O bloco de código que a desenhava foi deletado.
 
         if (!player.isHidden && !player.isInvisible) {
             ctx.fillStyle = (player.role === 'zombie' || player.isSpying) ? '#2ecc71' : 'white';
@@ -981,9 +1047,10 @@ function drawHudBackgrounds() {
     ctx.fill();
     ctx.stroke();
 
-    const rightHudWidth = 280;
+    // Ponto 1: Redimensionar e reposicionar o fundo do HUD para caber apenas a velocidade
+    const rightHudWidth = 200;
     ctx.beginPath();
-    ctx.roundRect(canvas.width - rightHudWidth - 15, canvas.height - 155, rightHudWidth, 140, [10]);
+    ctx.roundRect(canvas.width - rightHudWidth - 15, canvas.height - 75, rightHudWidth, 60, [10]);
     ctx.fill();
     ctx.stroke();
 }
@@ -1025,92 +1092,29 @@ function drawHudText(me) {
     ctx.font = '30px Arial';
     ctx.fillStyle = 'gold';
     ctx.textAlign = 'right';
-    ctx.fillText(`💎 ${Math.floor(me.gems)}`, canvas.width - 35, 52);
 
+    // Lógica do sprite da gema no HUD principal
+    const gemCountText = `${Math.floor(me.gems)}`;
+    const textX = canvas.width - 35;
+    const textY = 52;
+    ctx.fillText(gemCountText, textX, textY);
+    if (gemSprite.complete) {
+        const textWidth = ctx.measureText(gemCountText).width;
+        const iconSize = 35;
+        const padding = 10;
+        const iconX = textX - textWidth - padding - iconSize;
+        const iconY = textY - iconSize / 2 - 12;
+        ctx.drawImage(gemSprite, iconX, iconY, iconSize, iconSize);
+    }
+
+    // Ponto 1: Remover toda a lógica do HUD inferior direito, exceto a velocidade
     ctx.textAlign = 'right';
     ctx.fillStyle = 'white';
     ctx.font = '24px Arial';
 
-    const functionText = me.role === 'zombie' ? (me.zombieAbility || ' ').toUpperCase() : me.activeFunction.toUpperCase();
+    // HUD inferior direito (Apenas Velocidade)
     const displayedSpeed = Math.min(3, Math.max(0, me.speed - 1.5));
-    ctx.fillText(`SPEED: ${displayedSpeed.toFixed(2)}`, canvas.width - 30, canvas.height - 25);
-    ctx.fillText(`${functionText}`, canvas.width - 30, canvas.height - 60);
-
-    const yPos = canvas.height - 95;
-
-    if (me.role !== 'zombie') {
-        const bowItem = me.inventory.find(i => i && i.id === 'bow');
-        const cannonItem = me.inventory[me.selectedSlot];
-
-        if (cannonItem && cannonItem.id === 'cannon') {
-            if (Date.now() < (cannonItem.cooldownUntil || 0)) {
-                const remaining = Math.ceil((cannonItem.cooldownUntil - Date.now()) / 1000);
-                ctx.fillStyle = 'red';
-                ctx.fillText(`CANNON: ${remaining}s`, canvas.width - 30, yPos);
-            } else {
-                ctx.fillStyle = 'lightgreen';
-                ctx.fillText(`CANNON: READY`, canvas.width - 30, yPos);
-            }
-        } else if (bowItem) {
-            ctx.fillText(`AMMO: ${bowItem.ammo}`, canvas.width - 30, yPos);
-        } else if (me.inventory && me.inventory.some(i => i && i.id === 'drone') && gameState.drones[me.id]) {
-            ctx.fillText(`GRENADES: ${gameState.drones[me.id].ammo}`, canvas.width - 30, yPos);
-        } else if (me.inventory && me.inventory.some(i => i && i.id === 'gravityGlove')) {
-            const glove = me.inventory.find(i => i.id === 'gravityGlove');
-            ctx.fillStyle = 'white';
-            const uses = (glove && typeof glove.uses === 'number') ? glove.uses : 'N/A';
-            ctx.fillText(`GLOVE USES: ${uses}`, canvas.width - 30, yPos);
-        } else if (me.activeFunction === 'engineer') {
-            if (Date.now() < (me.engineerCooldownUntil || 0)) {
-                const remaining = Math.ceil((me.engineerCooldownUntil - Date.now()) / 1000);
-                ctx.fillStyle = 'red';
-                ctx.fillText(`DUCTS: ${remaining}s`, canvas.width - 30, yPos);
-            } else {
-                ctx.fillStyle = 'lightgreen';
-                ctx.fillText(`DUCTS: READY`, canvas.width - 30, yPos);
-            }
-        } else if (me.activeFunction === 'athlete') {
-            ctx.fillStyle = me.sprintAvailable ? 'lightgreen' : 'red';
-            ctx.fillText(`SPRINT: ${me.sprintAvailable ? 'READY' : 'RECHARGING'}`, canvas.width - 30, yPos);
-        } else if (me.activeFunction === 'butterfly') {
-            let statusText;
-            if (me.isFlying) {
-                statusText = 'FLYING!';
-                ctx.fillStyle = 'cyan';
-            } else if (me.butterflyUsed) {
-                statusText = 'USED';
-                ctx.fillStyle = 'darkred';
-            } else {
-                statusText = 'READY';
-                ctx.fillStyle = 'lightgreen';
-            }
-            ctx.fillText(`BUTTERFLY: ${statusText}`, canvas.width - 30, yPos);
-        } else if (me.activeFunction === 'spy') {
-            let statusText;
-            if (me.isSpying) {
-                statusText = 'ACTIVE';
-                ctx.fillStyle = 'yellow';
-            } else if (me.spyUsesLeft > 0 && !me.spyCooldown) {
-                statusText = 'READY';
-                ctx.fillStyle = 'lightgreen';
-            } else {
-                statusText = 'RECHARGING';
-                ctx.fillStyle = 'red';
-            }
-            if (me.spyUsesLeft === 0 && !me.isSpying) {
-                statusText = 'NO USES';
-                ctx.fillStyle = 'darkred';
-            }
-            ctx.fillText(`SPYING: ${statusText}`, canvas.width - 30, yPos);
-        }
-    } else {
-        ctx.fillStyle = 'white';
-        if (me.zombieAbility === 'trap') {
-            ctx.fillText(`TRAPS: ${me.trapsLeft}`, canvas.width - 30, yPos);
-        } else if (me.zombieAbility === 'mine') {
-            ctx.fillText(`MINES: ${me.minesLeft}`, canvas.width - 30, yPos);
-        }
-    }
+    ctx.fillText(`SPEED: ${displayedSpeed.toFixed(2)}`, canvas.width - 30, canvas.height - 40);
 }
 
 
@@ -1160,6 +1164,27 @@ function drawInventory() {
                     if (isActiveCloak) {
                         ctx.restore();
                     }
+                }
+
+                // Ponto 2: Lógica para desenhar a munição no slot do inventário
+                let ammoText = null;
+                if (item.id === 'bow' && typeof item.ammo === 'number') {
+                    ammoText = item.ammo;
+                } else if (item.id === 'drone' && gameState.drones[me.id]) {
+                    ammoText = gameState.drones[me.id].ammo;
+                }
+
+                if (ammoText !== null) {
+                    ctx.fillStyle = 'white';
+                    ctx.font = 'bold 20px Arial';
+                    ctx.textAlign = 'right';
+                    ctx.textBaseline = 'bottom';
+                    ctx.strokeStyle = 'black';
+                    ctx.lineWidth = 4;
+                    const textX = slotX + slotSize - 8;
+                    const textY = slotY + slotSize - 8;
+                    ctx.strokeText(ammoText, textX, textY);
+                    ctx.fillText(ammoText, textX, textY);
                 }
             }
 
@@ -1261,11 +1286,23 @@ function drawZombieMenu(me) {
                 ctx.font = '14px Arial';
                 ctx.fillStyle = canAfford ? '#ccc' : '#888';
                 ctx.fillText(btn.description, btn.rect.x + btn.rect.width / 2, btn.rect.y + 65);
+
                 ctx.font = '24px Arial';
                 ctx.fillStyle = canAfford ? 'gold' : 'red';
-                const costText = `💎 ${btn.price}`;
+                const costNumber = `${btn.price}`;
+                const textX = btn.rect.x + btn.rect.width - 15;
+                const textY = btn.rect.y + btn.rect.height - 15;
                 ctx.textAlign = 'right';
-                ctx.fillText(costText, btn.rect.x + btn.rect.width - 15, btn.rect.y + btn.rect.height - 15);
+                ctx.fillText(costNumber, textX, textY);
+
+                if (gemSprite.complete) {
+                    const textWidth = ctx.measureText(costNumber).width;
+                    const iconSize = 25;
+                    const padding = 5;
+                    const iconX = textX - textWidth - padding - iconSize;
+                    const iconY = textY - iconSize / 2 - 10;
+                    ctx.drawImage(gemSprite, iconX, iconY, iconSize, iconSize);
+                }
             });
         } else {
             ctx.font = '40px Arial';
@@ -1312,9 +1349,9 @@ function drawHumanMenu(me) {
 
     if (isNearATM) {
         const rareItemsTabBtn = getRareItemsTabRect();
-        ctx.fillStyle = activeMenuTab === 'exclusive_items' ? '#000000ff' : '#232323ff';
+        ctx.fillStyle = activeMenuTab === 'exclusive_items' ? '#3d0000ff' : '#6b0000ff';
         ctx.fillRect(rareItemsTabBtn.x, rareItemsTabBtn.y, rareItemsTabBtn.width, rareItemsTabBtn.height);
-        ctx.fillStyle = 'white';
+        ctx.fillStyle = 'red';
         ctx.fillText('EXCLUSIVE', rareItemsTabBtn.x + rareItemsTabBtn.width / 2, rareItemsTabBtn.y + 40);
     }
 
@@ -1348,11 +1385,24 @@ function drawHumanMenu(me) {
                 ctx.font = '14px Arial';
                 ctx.fillStyle = isTaken || isLocked ? '#777' : (canAfford ? '#ccc' : '#888');
                 ctx.fillText(btn.description, btn.rect.x + btn.rect.width / 2, btn.rect.y + 65);
+
                 ctx.font = '24px Arial';
                 ctx.fillStyle = canAfford && !isLocked ? 'gold' : 'red';
-                const costText = `💎 ${cost}`;
+                const costNumber = `${cost}`;
+                const textX = btn.rect.x + btn.rect.width - 15;
+                const textY = btn.rect.y + btn.rect.height - 15;
                 ctx.textAlign = 'right';
-                ctx.fillText(costText, btn.rect.x + btn.rect.width - 15, btn.rect.y + btn.rect.height - 15);
+                ctx.fillText(costNumber, textX, textY);
+
+                if (gemSprite.complete) {
+                    const textWidth = ctx.measureText(costNumber).width;
+                    const iconSize = 25;
+                    const padding = 5;
+                    const iconX = textX - textWidth - padding - iconSize;
+                    const iconY = textY - iconSize / 2 - 10;
+                    ctx.drawImage(gemSprite, iconX, iconY, iconSize, iconSize);
+                }
+
                 if (isTaken) {
                     ctx.fillStyle = 'rgba(255, 0, 0, 0.5)';
                     ctx.textAlign = 'center';
@@ -1412,25 +1462,57 @@ function drawHumanMenu(me) {
                     drawHeight = 120;
                     drawWidth = drawHeight * itemAspectRatio;
                 }
-                ctx.drawImage(sprite, btn.rect.x + 15 + (100 - drawWidth) / 2, btn.rect.y + (btn.rect.height - 120) / 2 + (120 - drawHeight) / 2, drawWidth, drawHeight);
+                const imgX = btn.rect.x + 15 + (100 - drawWidth) / 2;
+                const imgY = btn.rect.y + (btn.rect.height - 120) / 2 + (120 - drawHeight) / 2;
+
+                if (btn.id === 'angelWings') {
+                    ctx.save();
+                    const centerX = imgX + drawWidth / 2;
+                    const centerY = imgY + drawHeight / 2;
+                    ctx.translate(centerX, centerY);
+                    ctx.rotate(-Math.PI / 2); // Rotaciona 90 graus
+                    ctx.drawImage(sprite, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+                    ctx.restore();
+                } else {
+                    ctx.drawImage(sprite, imgX, imgY, drawWidth, drawHeight);
+                }
             }
-            ctx.textAlign = 'left';
+            
+            // CORREÇÃO: Centralizar o texto do item na área à direita do ícone
+            ctx.textAlign = 'center';
+            const textCenterX = btn.rect.x + 120 + (btn.rect.width - 120) / 2;
+
             ctx.font = '20px Arial';
             ctx.fillStyle = canBuy ? 'white' : '#999';
-            ctx.fillText(btn.text, btn.rect.x + 130, btn.rect.y + 50);
+            ctx.fillText(btn.text, textCenterX, btn.rect.y + 50);
+            
             ctx.font = '12px Arial';
             ctx.fillStyle = canBuy ? '#ccc' : '#888';
-            ctx.fillText(btn.description, btn.rect.x + 130, btn.rect.y + 85);
+            ctx.fillText(btn.description, textCenterX, btn.rect.y + 85);
+
+            // CORREÇÃO: Reposicionar a gema para o local original (canto inferior direito)
             ctx.font = '24px Arial';
             ctx.fillStyle = canAfford ? 'gold' : 'red';
-            const costText = `💎 ${btn.price}`;
+            const costNumber = `${btn.price}`;
+            const textX = btn.rect.x + btn.rect.width - 15;
+            const textY = btn.rect.y + btn.rect.height - 15;
             ctx.textAlign = 'right';
-            ctx.fillText(costText, btn.rect.x + btn.rect.width - 20, btn.rect.y + btn.rect.height - 20);
+            ctx.fillText(costNumber, textX, textY);
+
+            if (gemSprite.complete) {
+                const textWidth = ctx.measureText(costNumber).width;
+                const iconSize = 25;
+                const padding = 5;
+                const iconX = textX - textWidth - padding - iconSize;
+                const iconY = textY - iconSize / 2 - 10;
+                ctx.drawImage(gemSprite, iconX, iconY, iconSize, iconSize);
+            }
+
             if (alreadyOwned || (btn.id === 'inventoryUpgrade' && alreadyUpgraded)) {
                 ctx.fillStyle = 'rgba(0, 255, 0, 0.5)';
                 ctx.textAlign = 'center';
                 ctx.font = 'bold 20px Arial';
-                ctx.fillText('OWNED', btn.rect.x + btn.rect.width / 2 + 50, btn.rect.y + 120);
+                ctx.fillText('OWNED', textCenterX, btn.rect.y + 120);
             }
         });
     }
@@ -1486,12 +1568,12 @@ function getZombieItemsLayout() {
         id: 'trap',
         text: 'Trap',
         description: 'Place a trap to immobilize humans',
-        price: 50
+        price: 200
     }, {
         id: 'mine',
         text: 'Explosive Mine',
         description: 'Place a mine that explodes on contact',
-        price: 50
+        price: 200
     }];
     const menuWidth = 1500,
         menuHeight = 900;
@@ -1521,13 +1603,13 @@ function getItemsLayout() {
         id: 'normalGlove',
         text: 'NORMAL GLOVE',
         description: "Pushes objects with more force",
-        price: 100,
+        price: 500,
         sprite: normalGloveSprite
     }, {
         id: 'antidote',
         text: 'ANTIDOTE',
         description: 'Gives a chance to resist infection',
-        price: 20,
+        price: 200,
         sprite: antidoteSprite
     }];
     const menuWidth = 1500,
@@ -1558,50 +1640,56 @@ function getRareItemsLayout() {
         id: 'inventoryUpgrade',
         text: 'SLOT',
         description: 'Unlocks a second slot',
-        price: 500,
+        price: 2000,
         sprite: inventoryUpgradeSprite
     }, {
         id: 'skateboard',
         text: 'SKATEBOARD',
         description: 'Move faster',
-        price: 100,
+        price: 3000,
         sprite: skateboardSprite
     }, {
         id: 'drone',
         text: 'DRONE',
         description: 'Throws grenades',
-        price: 200,
+        price: 2000,
         sprite: droneSprite
     }, {
         id: 'invisibilityCloak',
         text: 'CLOAK',
         description: 'Become invisible',
-        price: 200,
+        price: 5000,
         sprite: invisibilityCloakSprite
     }, {
         id: 'gravityGlove',
         text: 'GRAVITY GLOVE',
         description: 'Pick up (E) and drop (G) objects',
-        price: 100,
+        price: 2000,
         sprite: gravityGloveSprite
     }, {
         id: 'portals',
         text: 'PORTALS',
         description: 'Place 2 portals for instant travel',
-        price: 200,
+        price: 3000,
         sprite: portalsSprite
     }, {
         id: 'cannon',
         text: 'CANNON',
         description: 'Fires a powerful cannonball',
-        price: 500,
+        price: 3000,
         sprite: cannonSprite
     }, {
         id: 'bow',
         text: 'BOW',
         description: 'Shoot arrows to slow enemies',
-        price: 200,
+        price: 1000,
         sprite: bowSprite
+    }, {
+        id: 'angelWings',
+        text: 'ANGEL WINGS',
+        description: 'Become an angel',
+        price: 20000,
+        sprite: angelWingsSprite
     }];
     const menuWidth = 1500,
         menuHeight = 900;
