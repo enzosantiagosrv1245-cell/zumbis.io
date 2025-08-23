@@ -65,7 +65,7 @@ const grenadeSprite = loadImage('Sprites/Grenade.png');
 const invisibilityCloakSprite = loadImage('Sprites/InvisibilityCloak.png');
 const antidoteSprite = loadImage('Sprites/Antidote.png');
 const trapSprite = loadImage('Sprites/Trap.png');
-const mineSprite = loadImage('Sprites/Mine.png'); // <-- NOVO ITEM
+const mineSprite = loadImage('Sprites/Mine.png');
 const gravityGloveSprite = loadImage('Sprites/GravityGlove.png');
 const normalGloveSprite = loadImage('Sprites/GravityGlove.png');
 const cannonSprite = loadImage('Sprites/Cannon.png');
@@ -74,7 +74,8 @@ const portalsSprite = loadImage('Sprites/Portals.png');
 const inventoryUpgradeSprite = loadImage('Sprites/Slot.png');
 const runningTennisSprite = loadImage('Sprites/runningTennis.png');
 const bowSprite = loadImage('Sprites/Bow.png');
-const shieldSprite = loadImage('Sprites/Shield.png');
+const arrowSprite = loadImage('Sprites/Arrow.png'); // Imagem da flecha
+const sharkSprite = loadImage('Sprites/Shark.png'); // Imagem do tubarão
 
 const itemSprites = {
     skateboard: skateboardSprite,
@@ -89,14 +90,24 @@ const itemSprites = {
     portals: portalsSprite,
     inventoryUpgrade: inventoryUpgradeSprite,
     runningTennis: runningTennisSprite,
-    bow: bowSprite,
-    shield: shieldSprite
+    bow: bowSprite
+};
+
+// Objeto unificado para sprites de objetos móveis
+const objectSprites = {
+    small_bed: smallBed,
+    small_table: smallTable,
+    big_table: bigTable,
+    car: car,
+    atm: atmSprite,
+    box: box
 };
 
 let myId = null;
 let gameState = {
     players: {},
     arrows: [],
+    sharks: [], // Estado dos tubarões
     timeLeft: 120,
     startTime: 60,
     postRoundTimeLeft: 10,
@@ -106,7 +117,7 @@ let gameState = {
     grenades: [],
     groundItems: [],
     traps: [],
-    mines: [], // <-- NOVO
+    mines: [],
     largeBalls: [],
     portals: []
 };
@@ -204,8 +215,8 @@ window.addEventListener('keydown', function(event) {
             }
         }
     }
-    
-    if (me && me.carryingObject) {
+
+    if (me && me.carryingObject && me.inventory.some(i => i ?.id === 'gravityGlove')) {
         if (key === 'q') {
             socket.emit('rotateCarriedObject', 'left');
         } else if (key === 'e') {
@@ -265,9 +276,14 @@ window.addEventListener('keydown', function(event) {
                     type: 'use_antidote'
                 });
             } else {
-                socket.emit('playerAction', {
-                    type: 'interact'
-                });
+                // A rotação com 'E' foi movida para cima, apenas para a gravity glove
+                // Esta ação de interação permanece para pegar itens etc.
+                const hasGravityGlove = me && me.inventory.some(i => i ?.id === 'gravityGlove');
+                if (!hasGravityGlove || (hasGravityGlove && !me.carryingObject)) {
+                    socket.emit('playerAction', {
+                        type: 'interact'
+                    });
+                }
             }
             break;
         case 'c':
@@ -364,7 +380,7 @@ canvas.addEventListener('mousedown', function(event) {
                 }
             }
         } else if (me.role === 'human') {
-            const atmObject = gameState.furniture.find(item => item.id === 'atm');
+            const atmObject = gameState.objects.find(item => item.id === 'atm');
             let isNearATM = false;
             if (atmObject) {
                 const dx = (me.x + me.width / 2) - (atmObject.x + atmObject.width / 2);
@@ -464,6 +480,17 @@ canvas.addEventListener('mousedown', function(event) {
     }
 });
 
+canvas.addEventListener('wheel', function(event) {
+    const me = gameState.players[myId];
+    if (me && me.inventory.some(i => i && i.id === 'gravityGlove') && me.carryingObject) {
+        event.preventDefault();
+        const direction = event.deltaY > 0 ? 'right' : 'left';
+        socket.emit('rotateCarriedObject', direction);
+    }
+}, {
+    passive: false
+});
+
 function showNicknameMenu() {
     const existingMenu = document.getElementById('nickname-container');
     if (existingMenu) return;
@@ -498,8 +525,8 @@ function showNicknameMenu() {
 
     const input = document.createElement('input');
     input.type = 'text';
-    input.maxLength = 10;
-    input.placeholder = 'Max 10 characters';
+    input.maxLength = 15;
+    input.placeholder = 'Max 15 characters';
     Object.assign(input.style, {
         padding: '12px',
         fontSize: '18px',
@@ -562,7 +589,7 @@ function draw() {
 
     const me = gameState.players[myId];
     const hasGravityGloves = me && me.inventory && me.inventory.find(i => i && i.id === 'gravityGlove');
-    const unmovableFurnitureIds = ['atm'];
+    const unmovableObjectIds = ['atm'];
 
     const zoomLevel = 0.67;
 
@@ -578,6 +605,21 @@ function draw() {
     ctx.drawImage(floors, 200, 200, 2697, 1670);
     ctx.drawImage(garageFloor, 2000, 1200, 700, 600);
     ctx.drawImage(sea, 4965, 0, 1300, 2000);
+
+    // 1. DESENHA OS TUBARÕES (DEPOIS DO MAR)
+    if (gameState.sharks) {
+        for (const shark of gameState.sharks) {
+            if (sharkSprite.complete) {
+                ctx.save();
+                ctx.translate(shark.x + shark.width / 2, shark.y + shark.height / 2);
+                ctx.rotate(shark.rotation); // Usa a rotação do servidor
+                ctx.drawImage(sharkSprite, -shark.width / 2, -shark.height / 2, shark.width, shark.height);
+                ctx.restore();
+            }
+        }
+    }
+
+    // 2. DESENHA A AREIA (DEPOIS DOS TUBARÕES)
     ctx.drawImage(sand, 4080, 0, 1850, 2000);
     ctx.drawImage(street, 3090, 0, 1000, 2000);
 
@@ -605,8 +647,7 @@ function draw() {
             if (trapSprite.complete) ctx.drawImage(trapSprite, trap.x, trap.y, trap.width, trap.height);
         }
     }
-    
-    // <-- NOVO: Desenha as minas
+
     if (gameState.mines) {
         for (const mine of gameState.mines) {
             if (mineSprite.complete) {
@@ -627,13 +668,6 @@ function draw() {
         }
     }
 
-    const furnitureSprites = {
-        small_bed: smallBed,
-        small_table: smallTable,
-        big_table: bigTable,
-        car: car,
-        atm: atmSprite
-    };
     for (const duct of gameState.ducts) {
         ctx.drawImage(ductSprite, duct.x, duct.y, duct.width, duct.height);
     }
@@ -652,31 +686,17 @@ function draw() {
 
     const carriedObjectIds = Object.values(gameState.players).filter(p => p.carryingObject).map(p => p.carryingObject.uniqueId);
 
-    if (gameState.box) {
-        for (const b of gameState.box) {
-            if (carriedObjectIds.includes(b.uniqueId)) continue;
-            ctx.save();
-            ctx.translate(b.x + b.width / 2, b.y + b.height / 2);
-            ctx.rotate(b.rotation);
-            ctx.drawImage(box, -b.width / 2, -b.height / 2, b.width, b.height);
-            if (hasGravityGloves) {
-                ctx.fillStyle = 'rgba(0, 255, 0, 0.3)';
-                ctx.fillRect(-b.width / 2, -b.height / 2, b.width, b.height);
-            }
-            ctx.restore();
-        }
-    }
-
-    if (gameState.furniture) {
-        for (const item of gameState.furniture) {
+    // Lógica de desenho unificada para todos os objetos
+    if (gameState.objects) {
+        for (const item of gameState.objects) {
             if (carriedObjectIds.includes(item.uniqueId)) continue;
-            const sprite = furnitureSprites[item.id];
+            const sprite = objectSprites[item.id];
             if (sprite) {
                 ctx.save();
                 ctx.translate(item.x + item.width / 2, item.y + item.height / 2);
                 ctx.rotate(item.rotation);
                 ctx.drawImage(sprite, -item.width / 2, -item.height / 2, item.width, item.height);
-                if (hasGravityGloves && !unmovableFurnitureIds.includes(item.id)) {
+                if (hasGravityGloves && !unmovableObjectIds.includes(item.id)) {
                     ctx.fillStyle = 'rgba(0, 255, 0, 0.3)';
                     ctx.fillRect(-item.width / 2, -item.height / 2, item.width, item.height);
                 }
@@ -727,7 +747,7 @@ function draw() {
 
     for (const playerId in gameState.players) {
         const player = gameState.players[playerId];
-        if (player.isInDuct) continue;
+        if (player.isInDuct || player.isBeingEaten) continue;
         if ((player.isHidden || (player.isInvisible && me.role === 'zombie')) && playerId !== myId) {
             continue;
         }
@@ -760,9 +780,9 @@ function draw() {
         } else {
             ctx.drawImage(human, -player.width / 2, -player.height / 2, player.width, player.height);
         }
-        
+
         const selectedItem = player.inventory[player.selectedSlot];
-        if (player.role === 'human' && selectedItem?.id === 'cannon') {
+        if (player.role === 'human' && selectedItem ?.id === 'cannon') {
             if (cannonSprite.complete) {
                 const itemWidth = 80;
                 const itemHeight = 50;
@@ -770,18 +790,10 @@ function draw() {
                 ctx.drawImage(cannonSprite, itemDistance, -itemHeight / 2, itemWidth, itemHeight);
             }
         }
-         if (player.role === 'human' && selectedItem?.id === 'shield') {
-            if (shieldSprite.complete) {
-                const itemWidth = 26;
-                const itemHeight = 120;
-                const itemDistance = player.width / 2;
-                ctx.drawImage(shieldSprite, itemDistance, -itemHeight / 2, itemWidth, itemHeight);
-            }
-        }
-        
+
         if (player.carryingObject) {
             const carried = player.carryingObject;
-            const sprite = furnitureSprites[carried.id] || (carried.id.startsWith('box') ? box : null);
+            const sprite = objectSprites[carried.id]; // Usar mapa de sprites unificado
             if (sprite) {
                 const distance = player.width / 2 + carried.width / 2;
                 ctx.save();
@@ -802,19 +814,6 @@ function draw() {
             ctx.font = '18px Arial';
             ctx.strokeText(player.name, player.x + player.width / 2, player.y - 20);
             ctx.fillText(player.name, player.x + player.width / 2, player.y - 20);
-        } 
-
-        if (player.role === 'human' && player.seaCountdown !== null && player.seaCountdown > 0) {
-            ctx.fillStyle = '#ff4d4d';
-            ctx.strokeStyle = 'black';
-            ctx.lineWidth = 4;
-            ctx.textAlign = 'center';
-            ctx.font = 'bold 30px Arial';
-            const countdownText = Math.ceil(player.seaCountdown);
-            const textX = player.x + player.width / 2;
-            const textY = player.y + player.height + 30;
-            ctx.strokeText(countdownText, textX, textY);
-            ctx.fillText(countdownText, textX, textY);
         }
     }
 
@@ -855,8 +854,13 @@ function draw() {
 
 
     for (const arrow of gameState.arrows) {
-        ctx.fillStyle = arrow.color || 'red';
-        ctx.fillRect(arrow.x, arrow.y, arrow.width, arrow.height);
+        if (arrowSprite.complete) {
+            ctx.save();
+            ctx.translate(arrow.x, arrow.y);
+            ctx.rotate(arrow.angle);
+            ctx.drawImage(arrowSprite, -arrow.width / 2, -arrow.height / 2, arrow.width, arrow.height);
+            ctx.restore();
+        }
     }
 
     if (gameState.drones) {
@@ -1028,7 +1032,7 @@ function drawHudText(me) {
     ctx.font = '24px Arial';
 
     const functionText = me.role === 'zombie' ? (me.zombieAbility || ' ').toUpperCase() : me.activeFunction.toUpperCase();
-    const displayedSpeed = Math.min(3, Math.max(0, me.speed - 1));
+    const displayedSpeed = Math.min(3, Math.max(0, me.speed - 1.5));
     ctx.fillText(`SPEED: ${displayedSpeed.toFixed(2)}`, canvas.width - 30, canvas.height - 25);
     ctx.fillText(`${functionText}`, canvas.width - 30, canvas.height - 60);
 
@@ -1100,7 +1104,6 @@ function drawHudText(me) {
             ctx.fillText(`SPYING: ${statusText}`, canvas.width - 30, yPos);
         }
     } else {
-        // <-- NOVO: HUD da Mina
         ctx.fillStyle = 'white';
         if (me.zombieAbility === 'trap') {
             ctx.fillText(`TRAPS: ${me.trapsLeft}`, canvas.width - 30, yPos);
@@ -1274,7 +1277,7 @@ function drawZombieMenu(me) {
 }
 
 function drawHumanMenu(me) {
-    const atmObject = gameState.furniture.find(item => item.id === 'atm');
+    const atmObject = gameState.objects.find(item => item.id === 'atm');
     let isNearATM = false;
     if (atmObject) {
         const dx = (me.x + me.width / 2) - (atmObject.x + atmObject.width / 2);
@@ -1441,19 +1444,19 @@ function getFunctionsLayout() {
     const functions = [{
         text: 'ATHLETE',
         func: 'athlete',
-        description: 'Sprint for a short duration.'
+        description: 'Sprint for a short duration'
     }, {
         text: 'ENGINEER',
         func: 'engineer',
-        description: 'Travel instantly between ducts.'
+        description: 'Travel instantly between ducts'
     }, {
         text: 'SPY',
         func: 'spy',
-        description: 'Disguise as a zombie.'
+        description: 'Disguise as a zombie'
     }, {
         text: 'BUTTERFLY',
         func: 'butterfly',
-        description: 'When caught, get a 10s flight.'
+        description: 'When caught, get a 10s flight'
     }];
     const menuWidth = 1500,
         menuHeight = 900;
@@ -1482,12 +1485,12 @@ function getZombieItemsLayout() {
     const abilities = [{
         id: 'trap',
         text: 'Trap',
-        description: 'Place a trap to immobilize humans.',
+        description: 'Place a trap to immobilize humans',
         price: 50
-    }, { // <-- NOVO ITEM
+    }, {
         id: 'mine',
         text: 'Explosive Mine',
-        description: 'Place a mine that explodes on contact.',
+        description: 'Place a mine that explodes on contact',
         price: 50
     }];
     const menuWidth = 1500,
@@ -1517,21 +1520,15 @@ function getItemsLayout() {
     const items = [{
         id: 'normalGlove',
         text: 'NORMAL GLOVE',
-        description: "Pushes objects with more force.",
+        description: "Pushes objects with more force",
         price: 100,
         sprite: normalGloveSprite
     }, {
         id: 'antidote',
         text: 'ANTIDOTE',
-        description: 'Gives a chance to resist infection.',
+        description: 'Gives a chance to resist infection',
         price: 20,
         sprite: antidoteSprite
-    }, {
-        id: 'shield',
-        text: 'SHIELD',
-        description: 'Blocks zombie attacks.',
-        price: 200,
-        sprite: shieldSprite
     }];
     const menuWidth = 1500,
         menuHeight = 900;
@@ -1560,7 +1557,7 @@ function getRareItemsLayout() {
     const rareItems = [{
         id: 'inventoryUpgrade',
         text: 'SLOT',
-        description: 'Unlocks a second slot.',
+        description: 'Unlocks a second slot',
         price: 500,
         sprite: inventoryUpgradeSprite
     }, {
@@ -1584,25 +1581,25 @@ function getRareItemsLayout() {
     }, {
         id: 'gravityGlove',
         text: 'GRAVITY GLOVE',
-        description: 'Pick up (E) and drop (G) objects.',
+        description: 'Pick up (E) and drop (G) objects',
         price: 100,
         sprite: gravityGloveSprite
     }, {
         id: 'portals',
         text: 'PORTALS',
-        description: 'Place 2 portals for instant travel.',
+        description: 'Place 2 portals for instant travel',
         price: 200,
         sprite: portalsSprite
     }, {
         id: 'cannon',
         text: 'CANNON',
-        description: 'Fires a powerful cannonball.',
+        description: 'Fires a powerful cannonball',
         price: 500,
         sprite: cannonSprite
     }, {
         id: 'bow',
         text: 'BOW',
-        description: 'Shoot arrows to slow enemies.',
+        description: 'Shoot arrows to slow enemies',
         price: 200,
         sprite: bowSprite
     }];
