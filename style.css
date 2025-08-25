@@ -31,14 +31,24 @@ canvas {
     left: 15px;
     transform: none;
     width: 550px;
-    padding: 12px;
+    padding: 12px 15px; /* Ajuste no padding */
     font-size: 16px;
-    border: 2px solid #666;
-    background-color: rgba(20, 20, 20, 0.85);
-    color: white;
-    border-radius: 10px;
+    border: 1px solid #555; /* Borda mais sutil */
+    background-color: rgba(10, 10, 10, 0.9); /* Fundo mais escuro e opaco */
+    color: #f0f0f0; /* Cor do texto mais clara */
+    border-radius: 8px; /* Bordas um pouco menos arredondadas */
     outline: none;
     z-index: 10;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.5); /* Sombra para profundidade */
+    transition: border-color 0.2s;
+}
+
+#chatInput::placeholder {
+    color: #888;
+}
+
+#chatInput:focus {
+    border-color: #2ecc71; /* Destaque ao focar */
 }
 
 /* HUD (Original, usado no jogo) */
@@ -401,15 +411,15 @@ canvas {
     background-color: #00983f;
 }
 #try-3d-panel {
-     background-color: #1e1e22;
-     background-size: cover;
-     background-position: center;
+      background-color: #1e1e22;
+      background-size: cover;
+      background-position: center;
 }
 #try-3d-panel button {
-     background-color: rgba(42, 42, 46, 0.8);
-     border: 2px solid #fff;
-     color: white;
-     padding: 10px 20px;
-     cursor: pointer;
-     transition: background-color 0.2s;
+      background-color: rgba(42, 42, 46, 0.8);
+      border: 2px solid #fff;
+      color: white;
+      padding: 10px 20px;
+      cursor: pointer;
+      transition: background-color 0.2s;
 }

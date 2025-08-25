@@ -10,22 +10,7 @@ const ctx = canvas.getContext('2d');
         margin: '0',
         overflow: 'hidden'
     });
-    Object.assign(chatInput.style, {
-        display: 'none',
-        position: 'absolute',
-        bottom: '15px',
-        left: '15px',
-        transform: 'none',
-        width: '550px',
-        padding: '12px',
-        fontSize: '16px',
-        border: '2px solid #666',
-        backgroundColor: 'rgba(20, 20, 20, 0.85)',
-        color: 'white',
-        borderRadius: '10px',
-        outline: 'none',
-        zIndex: '10'
-    });
+    // Estilos do chatInput foram movidos para o style.css para melhor organização
     chatInput.maxLength = 57;
 
     function resizeCanvas() {
@@ -82,6 +67,7 @@ const gemSprite = loadImage('Sprites/Gem.png');
 const angelWingsSprite = loadImage('Sprites/AngelWings.png');
 const wallSprite = loadImage('Sprites/BrickWall.png');
 const wallSprite2 = loadImage('Sprites/BrickWall2.png');
+const fishingRodSprite = loadImage('Sprites/FishingRod.png');
 
 const itemSprites = {
     skateboard: skateboardSprite,
@@ -98,7 +84,8 @@ const itemSprites = {
     inventoryUpgrade: inventoryUpgradeSprite,
     runningTennis: runningTennisSprite,
     bow: bowSprite,
-    angelWings: angelWingsSprite
+    angelWings: angelWingsSprite,
+    fishingRod: fishingRodSprite
 };
 
 const objectSprites = {
@@ -126,7 +113,8 @@ let gameState = {
     traps: [],
     mines: [],
     largeBalls: [],
-    portals: []
+    portals: [],
+    floatingTexts: []
 };
 const movement = {
     up: false,
@@ -141,6 +129,7 @@ let mouse = {
 let isMenuOpen = false;
 let isHowToPlayOpen = false;
 let isProfileOpen = false;
+let isInstructionsOpen = true;
 let activeMenuTab = 'functions';
 const chatInput = document.getElementById('chatInput');
 let isChatting = false;
@@ -224,7 +213,7 @@ window.addEventListener('keydown', function(event) {
         }
     }
 
-    if (isMenuOpen) {
+    if (isMenuOpen || isInstructionsOpen) {
         return;
     }
 
@@ -367,6 +356,27 @@ canvas.addEventListener('mousedown', function(event) {
         isProfileOpen = !isProfileOpen;
         isMenuOpen = false;
         isHowToPlayOpen = false;
+        return;
+    }
+
+    if (isInstructionsOpen) {
+        const menuWidth = 1500;
+        const menuHeight = 900;
+        const menuX = (canvas.width - menuWidth) / 2;
+        const menuY = (canvas.height - menuHeight) / 2;
+        const closeButtonSize = 40;
+        const closeButtonPadding = 20;
+
+        const closeButtonRect = {
+            x: menuX + menuWidth - closeButtonSize - closeButtonPadding,
+            y: menuY + closeButtonPadding,
+            width: closeButtonSize,
+            height: closeButtonSize
+        };
+
+        if (isClickInside(mouse, closeButtonRect)) {
+            isInstructionsOpen = false;
+        }
         return;
     }
 
@@ -636,6 +646,10 @@ function draw() {
             const sprite = objectSprites[item.id];
             if (sprite) {
                 ctx.save();
+                if (item.id === 'atm') {
+                    ctx.shadowColor = 'rgba(255, 255, 255, 1)';
+                    ctx.shadowBlur = 10;
+                }
                 ctx.translate(item.x + item.width / 2, item.y + item.height / 2);
                 ctx.rotate(item.rotation);
                 ctx.drawImage(sprite, -item.width / 2, -item.height / 2, item.width, item.height);
@@ -645,6 +659,53 @@ function draw() {
                 }
                 ctx.restore();
             }
+        }
+    }
+
+    const atmObject = gameState.objects.find(obj => obj.id === 'atm');
+    if (me && me.role === 'human' && atmObject) {
+        const playerCenterX = me.x + me.width / 2;
+        const playerCenterY = me.y + me.height / 2;
+        const atmCenterX = atmObject.x + atmObject.width / 2;
+        const atmCenterY = atmObject.y + atmObject.height / 2;
+        const distance = Math.hypot(playerCenterX - atmCenterX, playerCenterY - atmCenterY);
+
+        if (distance < 150) {
+            const text = "Press B (Exclusive Items)";
+            const textX = atmCenterX;
+            const textY = atmObject.y - 30;
+            const padding = 10;
+
+            ctx.font = 'bold 16px Arial';
+            ctx.textAlign = 'center';
+            const textMetrics = ctx.measureText(text);
+            const textWidth = textMetrics.width;
+            const bubbleWidth = textWidth + padding * 2;
+            const bubbleHeight = 30;
+            const bubbleX = textX - bubbleWidth / 2;
+            const bubbleY = textY - bubbleHeight;
+
+            ctx.save();
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.roundRect(bubbleX, bubbleY, bubbleWidth, bubbleHeight, [8]);
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(textX - 8, bubbleY + bubbleHeight);
+            ctx.lineTo(textX + 8, bubbleY + bubbleHeight);
+            ctx.lineTo(textX, bubbleY + bubbleHeight + 8);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.fillStyle = 'white';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(text, textX, bubbleY + bubbleHeight / 2);
+            ctx.restore();
         }
     }
 
@@ -796,16 +857,13 @@ function draw() {
         ctx.restore();
 
         if (!player.isHidden && !player.isInvisible) {
-            const isDev = player.name === 'EDDIE' || player.name === 'MINGAU';
+            const isDev = player.name === 'Eddie' || player.name === 'Mingau';
             const nameX = player.x + player.width / 2;
             const nameY = player.y - 20;
 
-            ctx.lineWidth = 5;
-            ctx.strokeStyle = 'black';
-
             if (isDev) {
-                ctx.font = 'bold 22px Arial';
-                const devTag = 'DEV ';
+                ctx.font = 'bold 20px College';
+                const devTag = '';
                 const playerName = player.name;
                 const devTagWidth = ctx.measureText(devTag).width;
                 const nameWidth = ctx.measureText(playerName).width;
@@ -814,6 +872,9 @@ function draw() {
                 const playerNameX = devTagX + devTagWidth;
 
                 ctx.textAlign = 'left';
+
+                ctx.strokeStyle = 'black';
+                ctx.lineWidth = 5;
 
                 // Draw DEV tag in red
                 ctx.fillStyle = 'red';
@@ -824,14 +885,36 @@ function draw() {
                 ctx.fillStyle = (player.role === 'zombie' || player.isSpying) ? '#2ecc71' : 'white';
                 ctx.strokeText(playerName, playerNameX, nameY);
                 ctx.fillText(playerName, playerNameX, nameY);
+                ctx.fillText(playerName, playerNameX, nameY);
 
             } else {
                 ctx.textAlign = 'center';
                 ctx.font = '18px Arial';
-                ctx.fillStyle = (player.role === 'zombie' || player.isSpying) ? '#2ecc71' : 'white';
+                ctx.strokeStyle = 'black';
+                ctx.lineWidth = 5;
                 ctx.strokeText(player.name, nameX, nameY);
+                ctx.fillStyle = (player.role === 'zombie' || player.isSpying) ? '#2ecc71' : 'white';
                 ctx.fillText(player.name, nameX, nameY);
             }
+        }
+    }
+
+    if (gameState.floatingTexts) {
+        for (const textInfo of gameState.floatingTexts) {
+            const life = (Date.now() - textInfo.createdAt) / 2000; // 0 a 1 em 2 segundos
+            if (life > 1) continue;
+            const alpha = 1 - life;
+            const yOffset = -life * 50; // O texto sobe
+            ctx.save();
+            ctx.globalAlpha = alpha;
+            ctx.fillStyle = 'gold';
+            ctx.strokeStyle = 'black';
+            ctx.lineWidth = 4;
+            ctx.font = 'bold 24px Arial';
+            ctx.textAlign = 'center';
+            ctx.strokeText(textInfo.text, textInfo.x, textInfo.y + yOffset);
+            ctx.fillText(textInfo.text, textInfo.x, textInfo.y + yOffset);
+            ctx.restore();
         }
     }
 
@@ -909,18 +992,103 @@ function draw() {
     if (isProfileOpen) {
         drawProfile();
     }
+    if (isInstructionsOpen) {
+        drawInstructionsMenu();
+    }
 }
 
 function drawProfile() {
     // Este é um placeholder para a interface do perfil.
     // Você pode adicionar o código para desenhar a tela de perfil aqui.
-    // Exemplo:
-    // ctx.fillStyle = 'rgba(0, 0, 50, 0.9)';
-    // ctx.fillRect(canvas.width / 4, canvas.height / 4, canvas.width / 2, canvas.height / 2);
-    // ctx.fillStyle = 'white';
-    // ctx.font = '30px Arial';
-    // ctx.textAlign = 'center';
-    // ctx.fillText('Tela de Perfil', canvas.width / 2, canvas.height / 2);
+}
+
+function drawInstructionsMenu() {
+    const menuWidth = 1500;
+    const menuHeight = 900;
+    const menuX = (canvas.width - menuWidth) / 2;
+    const menuY = (canvas.height - menuHeight) / 2;
+
+    // Background
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+    ctx.strokeStyle = '#555';
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.roundRect(menuX, menuY, menuWidth, menuHeight, [15]);
+    ctx.fill();
+    ctx.stroke();
+
+    // Close Button (X)
+    const closeButtonSize = 40;
+    const closeButtonPadding = 20;
+    const closeX = menuX + menuWidth - closeButtonSize - closeButtonPadding;
+    const closeY = menuY + closeButtonPadding;
+    ctx.font = 'bold 40px Arial';
+    ctx.fillStyle = '#FFF';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('X', closeX + closeButtonSize / 2, closeY + closeButtonSize / 2);
+
+    // Title
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 52px "Trebuchet MS", sans-serif';
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillText('Instructions / Instruções', canvas.width / 2, menuY + 80);
+
+    // --- Content ---
+    ctx.textAlign = 'left';
+    const contentX = menuX + 60;
+    let currentY = menuY + 180;
+
+    // Objective Section
+    ctx.font = 'bold 28px "Trebuchet MS", sans-serif';
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillText('Objective / Objetivo', contentX, currentY);
+    currentY += 15;
+    ctx.fillStyle = '#888';
+    ctx.fillRect(contentX, currentY, 320, 3);
+    currentY += 40;
+
+    ctx.fillStyle = '#DDDDDD';
+    ctx.font = '18px Arial';
+
+    ctx.fillText('•Humans: Survive until the timer runs out. Earn gems over time and use them in the shop (Press B) to buy items.', contentX, currentY);
+    currentY += 25;
+    ctx.fillText('•Humanos: Sobreviva até o tempo acabar. Ganhe gemas com o tempo e use-as na loja (Pressione B) para comprar itens.', contentX, currentY);
+    currentY += 45;
+    ctx.fillText('•Zombies: Infect all humans before the timer runs out.', contentX, currentY);
+    currentY += 25;
+    ctx.fillText('•Zumbis: Infecte todos os humanos antes que o tempo acabe.', contentX, currentY);
+    currentY += 80;
+
+    // Controls Section
+    ctx.font = 'bold 28px "Trebuchet MS", sans-serif';
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillText('Controls / Controles', contentX, currentY);
+    currentY += 15;
+    ctx.fillStyle = '#888';
+    ctx.fillRect(contentX, currentY, 300, 3);
+    currentY += 40;
+
+    const controls = [
+        ['W, A, S, D / Arrow Keys', 'Move your character. (Mova seu personagem)'],
+        ['Left Click', 'Use primary action (shoot, etc). (Use a ação primária (atirar, etc))'],
+        ['B', 'Open the Shop menu. (Abra a loja)'],
+        ['E', 'Interact with objects or pick up/use items. (Interaja com objetos ou pegue/use itens)'],
+        ['G', 'Drop items. (Solte itens)'],
+        ['C', 'Use your chosen function. (Use sua função escolhida)'],
+        ['Enter', 'Open or send a chat message. (Abra ou envie uma mensagem de bate-papo)'],
+    ];
+
+    const keyColWidth = 320;
+    for (const [key, desc] of controls) {
+        ctx.font = 'bold 18px Arial';
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillText(key + ':', contentX, currentY);
+        ctx.font = '18px Arial';
+        ctx.fillStyle = '#DDDDDD';
+        ctx.fillText(desc, contentX + keyColWidth, currentY);
+        currentY += 35;
+    }
 }
 
 function drawHowToPlayTab() {
@@ -992,79 +1160,87 @@ function drawHowToPlayTab() {
     }
 }
 
-
 function drawHudBackgrounds() {
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
-    ctx.lineWidth = 2;
+    ctx.save(); // Isola o estado de desenho da HUD
 
+    // Estilo aprimorado para os fundos da HUD
+    const mainGradient = ctx.createLinearGradient(0, 10, 0, 100);
+    mainGradient.addColorStop(0, 'rgba(30, 30, 30, 0.85)');
+    mainGradient.addColorStop(1, 'rgba(10, 10, 10, 0.75)');
+
+    ctx.fillStyle = mainGradient;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+    ctx.lineWidth = 2;
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+    ctx.shadowBlur = 10;
+
+    // HUD do topo (timer e status)
     const topHudWidth = 400;
     ctx.beginPath();
-    ctx.roundRect(canvas.width / 2 - topHudWidth / 2, 10, topHudWidth, 90, [10]);
+    ctx.roundRect(canvas.width / 2 - topHudWidth / 2, 10, topHudWidth, 90, [12]);
     ctx.fill();
     ctx.stroke();
 
+    // HUD de gemas
     const coinHudWidth = 180;
     ctx.beginPath();
-    ctx.roundRect(canvas.width - coinHudWidth - 15, 15, coinHudWidth, 50, [10]);
+    ctx.roundRect(canvas.width - coinHudWidth - 15, 15, coinHudWidth, 50, [12]);
     ctx.fill();
     ctx.stroke();
 
+    // HUD de velocidade
     const rightHudWidth = 200;
     ctx.beginPath();
-    ctx.roundRect(canvas.width - rightHudWidth - 15, canvas.height - 75, rightHudWidth, 60, [10]);
+    ctx.roundRect(canvas.width - rightHudWidth - 15, canvas.height - 75, rightHudWidth, 60, [12]);
     ctx.fill();
     ctx.stroke();
 
-    // Ícone de Perfil
-    const profileIconRadius = 25;
-    const profileIconX = canvas.width - coinHudWidth - 15 - profileIconRadius - 10;
-    const profileIconY = 15 + 50 / 2;
-    ctx.beginPath();
-    ctx.arc(profileIconX, profileIconY, profileIconRadius, 0, Math.PI * 2);
-    ctx.fillStyle = '#00FFFF'; // Ciano
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-    ctx.lineWidth = 3;
-    ctx.stroke();
+    ctx.restore(); // Restaura o estado do canvas
 }
 
+
 function drawHudText(me) {
+    ctx.save(); // Isola o estado de desenho do texto da HUD
+
     ctx.textAlign = 'center';
     ctx.fillStyle = 'white';
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.7)';
+    ctx.shadowBlur = 5;
+    ctx.shadowOffsetX = 2;
+    ctx.shadowOffsetY = 2;
 
-    ctx.font = '40px Arial';
+    ctx.font = 'bold 40px Arial';
     if (gameState.gamePhase === 'waiting') {
         const seconds = gameState.startTime % 60;
         ctx.fillText(`0:${String(seconds).padStart(2, '0')}`, canvas.width / 2, 80);
-        ctx.font = '30px Arial';
+        ctx.font = '28px Arial';
         ctx.fillText('The round starts in...', canvas.width / 2, 45);
     } else if (gameState.gamePhase === 'post-round') {
         const seconds = gameState.postRoundTimeLeft;
         ctx.fillText(`Restarting in: ${seconds}`, canvas.width / 2, 55);
-        ctx.font = '30px Arial';
+        ctx.font = 'bold 30px Arial';
         ctx.fillStyle = 'orange';
-        ctx.fillText('Round Over!', canvas.width / 2, 90);
+        ctx.fillText('End of Round!', canvas.width / 2, 90);
     } else {
         const minutes = Math.floor(gameState.timeLeft / 60);
         const seconds = gameState.timeLeft % 60;
         ctx.fillText(`${minutes}:${String(seconds).padStart(2, '0')}`, canvas.width / 2, 55);
-        ctx.font = '30px Arial';
+        ctx.font = 'bold 30px Arial';
 
         let roleText, roleColor;
         if (me.role === 'zombie') {
-            roleText = 'INFECT THE HUMANS!';
+            roleText = 'INFECT HUMANS!';
             roleColor = '#2ecc71';
         } else if (me.role === 'human') {
             roleText = 'SURVIVE!';
-            roleColor = 'blue';
+            roleColor = '#3498db';
         }
         ctx.fillStyle = roleColor;
         ctx.fillText(roleText, canvas.width / 2, 90);
     }
 
-    ctx.font = '30px Arial';
-    ctx.fillStyle = 'gold';
+    ctx.font = 'bold 30px Arial';
+    ctx.fillStyle = '#FFD700'; // Dourado para as gemas
     ctx.textAlign = 'right';
 
     const gemCountText = `${Math.floor(me.gems)}`;
@@ -1076,16 +1252,18 @@ function drawHudText(me) {
         const iconSize = 35;
         const padding = 10;
         const iconX = textX - textWidth - padding - iconSize;
-        const iconY = textY - iconSize / 2 - 12;
+        const iconY = textY - iconSize / 2 - 12; // Ajuste para alinhar verticalmente
         ctx.drawImage(gemSprite, iconX, iconY, iconSize, iconSize);
     }
 
     ctx.textAlign = 'right';
     ctx.fillStyle = 'white';
-    ctx.font = '24px Arial';
+    ctx.font = 'bold 24px Arial';
 
-    const displayedSpeed = Math.min(3, Math.max(0, me.speed - 2));
+    const displayedSpeed = Math.max(1, me.speed - 2); // Mostra a velocidade real
     ctx.fillText(`SPEED: ${displayedSpeed.toFixed(2)}`, canvas.width - 30, canvas.height - 40);
+
+    ctx.restore(); // Restaura o estado do canvas
 }
 
 
@@ -1142,6 +1320,8 @@ function drawInventory() {
                     ammoText = item.ammo;
                 } else if (item.id === 'drone' && gameState.drones[me.id]) {
                     ammoText = gameState.drones[me.id].ammo;
+                } else if (item.id === 'fishingRod' && typeof item.uses === 'number') {
+                    ammoText = item.uses;
                 }
 
                 if (ammoText !== null) {
@@ -1168,51 +1348,75 @@ function drawInventory() {
 
 function drawChat() {
     if (chatMessages.length === 0) return;
+
     ctx.save();
     const chatInputAndMargin = 60;
     const chatBoxPadding = 10;
     const lineHeight = 25;
+    const maxChatBoxHeight = (MAX_MESSAGES * lineHeight) + (chatBoxPadding * 2);
     const chatBoxHeight = (chatMessages.length * lineHeight) + (chatBoxPadding * 2);
     const chatBoxWidth = 550;
     const chatBoxX = 15;
     const chatBoxY = canvas.height - chatInputAndMargin - chatBoxHeight;
 
-    ctx.fillStyle = 'rgba(20, 20, 20, 0.7)';
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+    // Fundo com gradiente e sombra
+    const gradient = ctx.createLinearGradient(0, chatBoxY, 0, chatBoxY + chatBoxHeight);
+    gradient.addColorStop(0, 'rgba(20, 20, 20, 0.8)');
+    gradient.addColorStop(1, 'rgba(5, 5, 5, 0.8)');
+    ctx.fillStyle = gradient;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
     ctx.lineWidth = 1;
+    ctx.shadowColor = 'rgba(0,0,0,0.4)';
+    ctx.shadowBlur = 8;
     ctx.beginPath();
     ctx.roundRect(chatBoxX, chatBoxY, chatBoxWidth, chatBoxHeight, [8]);
     ctx.fill();
     ctx.stroke();
 
+    ctx.restore(); // Resetar sombra para o texto
+    ctx.save();
+
     ctx.font = '18px Arial';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
+    ctx.beginPath();
+    ctx.rect(chatBoxX, chatBoxY, chatBoxWidth, chatBoxHeight);
+    ctx.clip(); // Impede que o texto saia da caixa
 
     chatMessages.forEach((msg, index) => {
         const messageY = chatBoxY + chatBoxPadding + (index * lineHeight);
         const messageX = chatBoxX + chatBoxPadding;
 
+        // Desenha o nome
         ctx.font = 'bold 18px Arial';
-        ctx.fillStyle = msg.name === 'Server' ? '#FFD700' : '#2ecc71';
+        ctx.fillStyle = msg.name === 'Server' ? '#FFD700' : (msg.isZombie ? '#2ecc71' : '#3498db');
         ctx.fillText(msg.name + ':', messageX, messageY);
 
+        // Desenha a mensagem
         ctx.font = '18px Arial';
-        ctx.fillStyle = msg.color || 'white';
+        ctx.fillStyle = '#f0f0f0';
         const nameWidth = ctx.measureText(msg.name + ': ').width;
         ctx.fillText(msg.text, messageX + nameWidth, messageY);
     });
     ctx.restore();
 }
 
+
 function drawMenu() {
+    ctx.save(); // CORREÇÃO DE BUG: Isola o estado de desenho do menu
+
     const me = gameState.players[myId];
-    if (!me) return;
+    if (!me) {
+        ctx.restore();
+        return;
+    }
     if (me.role === 'zombie') {
         drawZombieMenu(me);
     } else if (me.role === 'human') {
         drawHumanMenu(me);
     }
+
+    ctx.restore(); // CORREÇÃO DE BUG: Restaura o estado após desenhar o menu
 }
 
 function drawZombieMenu(me) {
@@ -1507,20 +1711,27 @@ function getFunctionsLayout() {
         text: 'BUTTERFLY',
         func: 'butterfly',
         description: 'When caught, get a 10s flight'
+    }, {
+        text: 'RHINOCEROS',
+        func: 'rhinoceros',
+        description: 'Throw nearby objects away'
     }];
-    const menuWidth = 1500,
-        menuHeight = 900;
-    const menuX = (canvas.width - menuWidth) / 2,
-        menuY = (canvas.height - menuHeight) / 2;
-    const cols = 4,
-        btnWidth = 320,
-        btnHeight = 120,
-        gap = 40;
+
+    const menuWidth = 1500;
+    const menuHeight = 900;
+    const menuX = (canvas.width - menuWidth) / 2;
+    const menuY = (canvas.height - menuHeight) / 2;
+    const cols = 4;
+    const btnWidth = 320;
+    const btnHeight = 120;
+    const gap = 40;
     const totalGridWidth = cols * btnWidth + (cols - 1) * gap;
     const startX = menuX + (menuWidth - totalGridWidth) / 2;
     const startY = menuY + 200;
+
     return {
-        buttons: functions.map((func, index) => ({ ...func,
+        buttons: functions.map((func, index) => ({
+            ...func,
             rect: {
                 x: startX + (index % cols) * (btnWidth + gap),
                 y: startY + Math.floor(index / cols) * (btnHeight + gap),
@@ -1530,6 +1741,7 @@ function getFunctionsLayout() {
         }))
     };
 }
+
 
 function getZombieItemsLayout() {
     const abilities = [{
@@ -1579,6 +1791,18 @@ function getItemsLayout() {
         description: 'Reduces chance of being zombie',
         price: 200,
         sprite: antidoteSprite
+    }, {
+        id: 'fishingRod',
+        text: 'FISHING ROD',
+        description: 'Try your luck fishing in the sea',
+        price: 1000,
+        sprite: fishingRodSprite
+    }, {
+        id: 'bow',
+        text: 'BOW',
+        description: 'Shoot arrows to slow enemies',
+        price: 2000,
+        sprite: bowSprite
     }];
     const menuWidth = 1500,
         menuHeight = 900;
@@ -1646,12 +1870,6 @@ function getRareItemsLayout() {
         description: 'Fires a powerful cannonball',
         price: 5000,
         sprite: cannonSprite
-    }, {
-        id: 'bow',
-        text: 'BOW',
-        description: 'Shoot arrows to slow enemies',
-        price: 2000,
-        sprite: bowSprite
     }, {
         id: 'angelWings',
         text: 'ANGEL WINGS',

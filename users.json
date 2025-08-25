@@ -1,7 +1,7 @@
 {
-  "EDDIE": {
+  "Eddie": {
     "id": "ID108156",
-    "username": "EDDIE",
+    "username": "Eddie",
     "password": "Eddie7*",
     "color": "#3498db",
     "photo": "https://www.google.com/url?sa=i&url=https%3A%2F%2Fdepositphotos.com%2Fbr%2Fvectors%2Fperfil-masculino.html&psig=AOvVaw2xcI-ra2qOCjr5IbEMqEvx&ust=1756228728998000&source=images&cd=vfe&opi=89978449&ved=0CBUQjRxqFwoTCODumoC8po8DFQAAAAAdAAAAABAM",
@@ -9,19 +9,9 @@
     "friends": [],
     "requests": []
   },
-  "NOPE": {
-    "id": "ID612223",
-    "username": "NOPE",
-    "password": "123456",
-    "color": "#3498db",
-    "photo": null,
-    "editedName": false,
-    "friends": [],
-    "requests": []
-  },
-  "Eddie": {
-    "id": "ID151028",
-    "username": "Eddie",
+  "Zombie": {
+    "id": "ID916785",
+    "username": "Zombie",
     "password": "123456",
     "color": "#3498db",
     "photo": null,

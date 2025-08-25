@@ -76,13 +76,13 @@ const SEA_AREA = {
     width: 1300,
     height: 2000
 };
-const SHARK_BASE_SPEED = 1.5;
+const SHARK_BASE_SPEED = 2.0;
 const INITIAL_PLAYER_SIZE = 35;
 const INITIAL_PLAYER_SPEED = 3;
 const MAX_PLAYER_SPEED = 5;
 const PLAYER_ACCELERATION = 1.2;
 const PLAYER_FRICTION = 0.90;
-const ZOMBIE_SPEED_BOOST = 1.30;
+const ZOMBIE_SPEED_BOOST = 1.50;
 const ZOMBIE_PUSH_MODIFIER = 2.5;
 const ZOMBIE_MIN_SPEED = 3;
 const SPRINT_DURATION = 10000;
@@ -113,7 +113,7 @@ const DROPPED_ITEM_SIZE = 40;
 const PICKUP_RADIUS = 60;
 const DUCT_TRAVEL_TIME = 1000 / 20;
 const ARROW_SPEED = 30;
-const ARROW_KNOCKBACK_IMPulse = 1;
+const ARROW_KNOCKBACK_IMPULSES = 0.4;
 const ARROW_LIFESPAN_AFTER_HIT = 3000;
 const ARROW_SPAWN_OFFSET = 120;
 const MINE_SIZE = 40;
@@ -125,16 +125,23 @@ const ROTATION_ON_COLLISION_FACTOR = 0.000002;
 const FORCE_NORMAL_GLOVE_MULTIPLIER = 3;
 const LARGE_BALL_OBJECT_KNOCKBACK = 0.5;
 const LARGE_BALL_PLAYER_KNOCKBACK = 0.5;
+const RHINOCEROS_FORCE = 3;
+const RHINOCEROS_RADIUS = 250;
+const RHINOCEROS_COOLDOWN = 5000;
+
 const FUNCTION_COSTS = {
     athlete: 500,
     engineer: 500,
     spy: 500,
-    butterfly: 1000
+    butterfly: 1000,
+    rhinoceros: 2000,
 };
 const ZOMBIE_ABILITY_COSTS = {
     trap: 50,
     mine: 50
 };
+
+// Categorias de Colisão (RESTAURADO AO ORIGINAL)
 const playerCategory = 0x0002;
 const wallCategory = 0x0004;
 const movableObjectCategory = 0x0008;
@@ -166,12 +173,13 @@ function createPlayerBody(player) {
         label: 'player',
         collisionFilter: {
             category: playerCategory,
-            mask: 0xFFFFFFFF
+            mask: 0xFFFFFFFF // RESTAURADO: Colide com tudo
         }
     });
     body.playerId = player.id;
     return body;
 }
+
 
 function initializeGame() {
     nextUniqueObjectId = 0;
@@ -192,6 +200,7 @@ function initializeGame() {
         largeBalls: [],
         portals: [],
         sharks: [],
+        floatingTexts: [],
         objects: [],
         obstacles: [],
         takenFunctions: [],
@@ -280,7 +289,7 @@ function initializeGame() {
 
 function createSharks() {
     gameState.sharks = [];
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 5; i++) {
         const sizeMultiplier = 0.8 + Math.random() * 0.7;
         const shark = {
             id: i,
@@ -290,7 +299,7 @@ function createSharks() {
             y: SEA_AREA.y + Math.random() * (SEA_AREA.height - 60),
             speed: (SHARK_BASE_SPEED + Math.random()) * (1 / sizeMultiplier),
             rotation: 0,
-            state: 'patrolling',
+            state: 'patrolling', // states: patrolling, attacking, sleeping
             pauseUntil: 0,
             targetPlayerId: null,
             patrolTarget: null,
@@ -461,7 +470,7 @@ function buildWalls(structure) {
         });
         s.walls.push({
             x: s.x,
-            y: s.y + 1020,
+            y: s.y + 1020, // AQUI
             width: wt,
             height: s.height - 1220
         });
@@ -678,6 +687,9 @@ function createNewPlayer(socket) {
         draggedBy: null,
         draggedUntil: null,
         isBeingEaten: false,
+        isSleeping: false,
+        sleepUntil: 0,
+        rhinocerosCooldownUntil: 0,
         input: {
             movement: {
                 up: false,
@@ -761,6 +773,7 @@ function updateSharks() {
     const humansInSea = Object.values(gameState.players).filter(p => p.role === 'human' && !p.isBeingEaten && isColliding(p, SEA_AREA));
 
     for (const shark of gameState.sharks) {
+
         if (shark.targetPlayerId) {
             const target = gameState.players[shark.targetPlayerId];
             if (!target || target.role !== 'human' || !isColliding(target, SEA_AREA)) {
@@ -864,6 +877,13 @@ function updateGameState() {
     const now = Date.now();
     Matter.Engine.update(engine, TICK_RATE);
     updateSharks();
+
+    for (let i = gameState.floatingTexts.length - 1; i >= 0; i--) {
+        const text = gameState.floatingTexts[i];
+        if (Date.now() - text.createdAt > 2000) {
+            gameState.floatingTexts.splice(i, 1);
+        }
+    }
 
     for (const body of world.bodies) {
         if (body.uniqueId !== undefined) {
@@ -1151,8 +1171,8 @@ function updateGameState() {
             if (arrow.ownerId === playerId || !player.physicalHitbox || player.isInDuct) continue;
             const distSq = (player.physicalHitbox.cx - arrow.x) ** 2 + (player.physicalHitbox.cy - arrow.y) ** 2;
             if (distSq < (player.physicalHitbox.radius) ** 2) {
-                player.knockbackVx += Math.cos(arrow.angle) * ARROW_KNOCKBACK_IMPulse;
-                player.knockbackVy += Math.sin(arrow.angle) * ARROW_KNOCKBACK_IMPulse;
+                player.knockbackVx += Math.cos(arrow.angle) * ARROW_KNOCKBACK_IMPULSES;
+                player.knockbackVy += Math.sin(arrow.angle) * ARROW_KNOCKBACK_IMPULSES;
                 arrow.hasHit = true;
                 arrow.isStuck = true;
                 arrow.angularVelocity = 0.001;
@@ -1199,7 +1219,9 @@ function updateGameState() {
         const grenade = gameState.grenades[i];
         if (now > grenade.explodeTime) {
             for (const player of Object.values(gameState.players)) {
-                const distance = Math.hypot(player.x - grenade.x, player.y - grenade.y);
+                const playerCenterX = player.x + player.width / 2;
+                const playerCenterY = player.y + player.height / 2;
+                const distance = Math.hypot(playerCenterX - grenade.x, playerCenterY - grenade.y);
                 if (distance < GRENADE_RADIUS) {
                     const knockback = (1 - (distance / GRENADE_RADIUS)) * GRENADE_KNOCKBACK_IMPulse;
                     const angle = Math.atan2(playerCenterY - grenade.y, playerCenterX - grenade.x);
@@ -1409,7 +1431,7 @@ function setupCollisionEvents() {
                         dropHeldItem(human);
                         if (human.isSpying) human.isSpying = false;
 
-                        const percent = (Math.random() * (0.7 - 0.6) + 0.6);
+                        const percent = (Math.random() * (0.8 - 0.7) + 0.7);
                         const gemsLost = human.gems * percent;
                         const speedLost = (human.speed - ZOMBIE_MIN_SPEED) * percent;
 
@@ -1602,7 +1624,7 @@ io.on('connection', (socket) => {
     socket.on('rotateCarriedObject', (direction) => {
         const player = gameState.players[socket.id];
         if (player && player.carryingObject) {
-            const amount = (Math.PI / 10) * (direction === 'left' ? -1 : 1);
+            const amount = (Math.PI / 40) * (direction === 'left' ? -1 : 1);
             player.carryingObject.rotation += amount;
         }
     });
@@ -1649,6 +1671,20 @@ io.on('connection', (socket) => {
                 cost = 200;
                 itemData = {
                     id: 'antidote'
+                };
+                break;
+            case 'fishingRod':
+                cost = 1000;
+                itemData = {
+                    id: 'fishingRod',
+                    uses: 3
+                };
+                break;
+            case 'bow':
+                cost = 2000;
+                itemData = {
+                    id: 'bow',
+                    ammo: 200
                 };
                 break;
         }
@@ -1706,13 +1742,6 @@ io.on('connection', (socket) => {
                 itemData = {
                     id: 'cannon',
                     cooldownUntil: 0
-                };
-                break;
-            case 'bow':
-                cost = 2000;
-                itemData = {
-                    id: 'bow',
-                    ammo: 200
                 };
                 break;
             case 'angelWings':
@@ -1936,6 +1965,22 @@ io.on('connection', (socket) => {
                         if (gameState.players[socket.id]) gameState.players[socket.id].spyCooldown = false;
                     }, SPY_COOLDOWN);
                 }
+                if (player.activeFunction === 'rhinoceros' && now > (player.rhinocerosCooldownUntil || 0)) {
+                    player.rhinocerosCooldownUntil = now + RHINOCEROS_COOLDOWN;
+                    for (const body of world.bodies) {
+                        if (body.label === 'furniture' || body.label === 'box') {
+                            const distance = Math.hypot(body.position.x - player.x, body.position.y - player.y);
+                            if (distance < RHINOCEROS_RADIUS) {
+                                const angle = Math.atan2(body.position.y - player.y, body.position.x - player.x);
+                                const force = {
+                                    x: Math.cos(angle) * RHINOCEROS_FORCE,
+                                    y: Math.sin(angle) * RHINOCEROS_FORCE
+                                };
+                                Matter.Body.applyForce(body, body.position, force);
+                            }
+                        }
+                    }
+                }
                 break;
             case 'drop_item':
                 if (player.carryingObject) {
@@ -1974,6 +2019,42 @@ io.on('connection', (socket) => {
                 }
                 break;
             case 'interact':
+                const fishingRod = player.inventory.find(i => i && i.id === 'fishingRod');
+                if (fishingRod && isColliding(player, SEA_AREA)) {
+                    if (fishingRod.uses > 0) {
+                        fishingRod.uses--;
+                        let totalGemsWon = 0;
+                        const prizes = [
+                            { gems: 10000, chance: 0.007},
+                            { gems: 5000, chance: 0.01},
+                            { gems: 2000, chance: 0.015 },
+                            { gems: 1000, chance: 0.03 },
+                            { gems: 500, chance: 0.20 },
+                            { gems: 200, chance: 0.20 },
+                            { gems: 100, chance: 0.50 },
+                            { gems: 0, chance: 0.50}
+                        ];
+                        for (const prize of prizes) {
+                            if (Math.random() < prize.chance) {
+                                totalGemsWon += prize.gems;
+                            }
+                        }
+                        player.gems += totalGemsWon;
+
+                        gameState.floatingTexts.push({
+                            text: `+${totalGemsWon} Gems!`,
+                            x: player.x + player.width / 2,
+                            y: player.y,
+                            createdAt: Date.now()
+                        });
+
+                        if (fishingRod.uses <= 0) {
+                            player.inventory = player.inventory.filter(i => i.id !== 'fishingRod');
+                        }
+                    }
+                    return;
+                }
+
                 const glove = player.inventory.find(i => i.id === 'gravityGlove');
                 if (glove && !player.carryingObject && glove.uses > 0) {
                     let closestBody = null,
@@ -2076,10 +2157,12 @@ io.on('connection', (socket) => {
         if (player && text && text.trim().length > 0) {
             io.emit('newMessage', {
                 name: player.name,
-                text: text.substring(0, 40)
+                text: text.substring(0, 40),
+                isZombie: player.role === 'zombie'
             });
         }
     });
+
 
     socket.on('disconnect', () => {
         console.log('Player disconnected:', socket.id);
@@ -2260,8 +2343,8 @@ function startNewRound() {
             isBeingEaten: false,
         });
 
-        player.speed = Math.max(2, player.speed);
-        player.originalSpeed = Math.max(2, player.originalSpeed);
+        player.speed = Math.max(3, player.speed);
+        player.originalSpeed = Math.max(3, player.originalSpeed);
 
         const playerBody = world.bodies.find(b => b.playerId === id);
         const startPos = {
