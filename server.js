@@ -1,16 +1,65 @@
 const express = require('express');
 const http = require('http');
-const socketIo = require('socket.io');
+const {
+    Server
+} = require("socket.io");
 const Matter = require('matter-js');
+const fs = require('fs-extra');
+const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
-const io = socketIo(server);
-
-app.use(express.static(__dirname));
+const io = new Server(server);
 
 const PORT = process.env.PORT || 3000;
+
+app.use(express.static(__dirname));
+app.use(express.json());
+
+const USERS_FILE = path.join(__dirname, "users.json");
+const MESSAGES_FILE = path.join(__dirname, "messages.json");
+const LINKS_FILE = path.join(__dirname, "links.json");
+
+let users = {};
+let sockets = {};
+let messages = {};
+let links = [];
+
+if (fs.existsSync(USERS_FILE)) users = fs.readJsonSync(USERS_FILE);
+if (fs.existsSync(MESSAGES_FILE)) messages = fs.readJsonSync(MESSAGES_FILE);
+if (fs.existsSync(LINKS_FILE)) links = fs.readJsonSync(LINKS_FILE);
+
+function saveUsers() {
+    fs.writeJsonSync(USERS_FILE, users, {
+        spaces: 2
+    });
+}
+
+function saveMessages() {
+    fs.writeJsonSync(MESSAGES_FILE, messages, {
+        spaces: 2
+    });
+}
+
+function saveLinks() {
+    fs.writeJsonSync(LINKS_FILE, links, {
+        spaces: 2
+    });
+}
+
+function generateID() {
+    return "ID" + Math.floor(Math.random() * 1000000);
+}
+
 const TICK_RATE = 1000 / 60;
+let engine, world;
+let bodiesMap = {};
+let gameState = {};
+let nextArrowId = 0,
+    nextGrenadeId = 0,
+    nextTrapId = 0,
+    nextMineId = 0,
+    nextUniqueObjectId = 0;
 
 const WORLD_WIDTH = 6000;
 const WORLD_HEIGHT = 2000;
@@ -28,17 +77,14 @@ const SEA_AREA = {
     height: 2000
 };
 const SHARK_BASE_SPEED = 1.5;
-
 const INITIAL_PLAYER_SIZE = 35;
-const INITIAL_PLAYER_SPEED = 5;
-const MAX_PLAYER_SPEED = 7;
+const INITIAL_PLAYER_SPEED = 3;
+const MAX_PLAYER_SPEED = 5;
 const PLAYER_ACCELERATION = 1.2;
 const PLAYER_FRICTION = 0.90;
-
-const ZOMBIE_SPEED_BOOST = 1.20;
+const ZOMBIE_SPEED_BOOST = 1.30;
 const ZOMBIE_PUSH_MODIFIER = 2.5;
-const ZOMBIE_MIN_SPEED = 2;
-
+const ZOMBIE_MIN_SPEED = 3;
 const SPRINT_DURATION = 10000;
 const SPRINT_COOLDOWN = 30000;
 const SPY_DURATION = 15000;
@@ -53,7 +99,7 @@ const DRONE_FOLLOW_FACTOR = 0.05;
 const DRONE_MAX_AMMO = 10;
 const GRENADE_FUSE_TIME = 1500;
 const GRENADE_RADIUS = 200;
-const GRENADE_KNOCKBACK_IMPULSE = 30;
+const GRENADE_KNOCKBACK_IMPulse = 30;
 const LARGE_BALL_SPEED = 12;
 const LARGE_BALL_RADIUS = 25;
 const LARGE_BALL_MAX_BOUNCES = 20;
@@ -62,51 +108,37 @@ const CANNON_FRONT_OFFSET = 100;
 const TRAP_DURATION = 1000;
 const TRAP_SIZE = 40;
 const PORTAL_SIZE = 60;
-const PORTAL_COOLDOWN = 2000;
+const PORTAL_COOLDOWN = 1000;
 const DROPPED_ITEM_SIZE = 40;
-// Ponto 5: Redefinindo a distância de pickup para ser mais responsiva
 const PICKUP_RADIUS = 60;
 const DUCT_TRAVEL_TIME = 1000 / 20;
 const ARROW_SPEED = 30;
-const ARROW_KNOCKBACK_IMPULSE = 1;
+const ARROW_KNOCKBACK_IMPulse = 1;
 const ARROW_LIFESPAN_AFTER_HIT = 3000;
 const ARROW_SPAWN_OFFSET = 120;
-
 const MINE_SIZE = 40;
 const MINE_EXPLOSION_RADIUS = 100;
 const MINE_PRIMARY_KNOCKBACK = 20;
 const MINE_SPLASH_KNOCKBACK = 15;
-
 const BOX_PUSH_FORCE = 100000;
 const ROTATION_ON_COLLISION_FACTOR = 0.000002;
 const FORCE_NORMAL_GLOVE_MULTIPLIER = 3;
-const LARGE_BALL_OBJECT_KNOCKBACK = 0.7;
-const LARGE_BALL_PLAYER_KNOCKBACK = 0.7;
-
+const LARGE_BALL_OBJECT_KNOCKBACK = 0.5;
+const LARGE_BALL_PLAYER_KNOCKBACK = 0.5;
 const FUNCTION_COSTS = {
-    athlete: 2000,
-    engineer: 2000,
-    spy: 3000,
-    butterfly: 5000
+    athlete: 500,
+    engineer: 500,
+    spy: 500,
+    butterfly: 1000
 };
 const ZOMBIE_ABILITY_COSTS = {
     trap: 50,
     mine: 50
 };
-
 const playerCategory = 0x0002;
 const wallCategory = 0x0004;
 const movableObjectCategory = 0x0008;
 const cannonballCategory = 0x0010;
-
-let engine, world;
-let bodiesMap = {};
-let gameState = {};
-let nextArrowId = 0,
-    nextGrenadeId = 0,
-    nextTrapId = 0,
-    nextMineId = 0,
-    nextUniqueObjectId = 0;
 
 function getDensityById(id) {
     switch (id) {
@@ -160,7 +192,7 @@ function initializeGame() {
         largeBalls: [],
         portals: [],
         sharks: [],
-        objects: [], // Array de objetos unificada
+        objects: [],
         obstacles: [],
         takenFunctions: [],
         functionCosts: FUNCTION_COSTS,
@@ -169,6 +201,7 @@ function initializeGame() {
         startTime: 60,
         timeLeft: ROUND_DURATION,
         postRoundTimeLeft: 10,
+        lastPortalUseTimestamp: 0,
         skateboard: {
             id: 'skateboard',
             x: 0,
@@ -257,7 +290,7 @@ function createSharks() {
             y: SEA_AREA.y + Math.random() * (SEA_AREA.height - 60),
             speed: (SHARK_BASE_SPEED + Math.random()) * (1 / sizeMultiplier),
             rotation: 0,
-            state: 'patrolling', // patrolling, paused, attacking
+            state: 'patrolling',
             pauseUntil: 0,
             targetPlayerId: null,
             patrolTarget: null,
@@ -413,7 +446,6 @@ function buildWalls(structure) {
             width: s.width,
             height: wt
         });
-        // 1. PORTA DA CASA REMOVIDA (PAREDE RESTAURADA)
         s.walls.push({
             x: s.x,
             y: s.y + s.height - wt - 200,
@@ -551,7 +583,6 @@ function buildWalls(structure) {
             width: s.width,
             height: wt
         });
-        // Parede esquerda da garagem com porta (mantida)
         s.walls.push({
             x: s.x + 1200,
             y: s.y,
@@ -617,7 +648,7 @@ function createNewPlayer(socket) {
         role: 'human',
         selectedSlot: 0,
         activeFunction: ' ',
-        gems: 10000,
+        gems: 1000,
         isSprinting: false,
         sprintAvailable: true,
         isSpying: false,
@@ -643,6 +674,7 @@ function createNewPlayer(socket) {
         carryingObject: null,
         portalCooldownUntil: 0,
         hasAntidoteEffect: false,
+        initialZombieProtection: 0,
         draggedBy: null,
         draggedUntil: null,
         isBeingEaten: false,
@@ -673,7 +705,6 @@ function dropHeldItem(player) {
         if (!itemToDrop) continue;
         if (itemToDrop.id === 'gravityGlove') continue;
 
-        // Ponto 5: Corrigir a posição de drop do item para a frente do jogador
         const dropDistance = player.width / 2 + DROPPED_ITEM_SIZE;
         const dropX = player.x + player.width / 2 + Math.cos(player.rotation) * dropDistance;
         const dropY = player.y + player.height / 2 + Math.sin(player.rotation) * dropDistance;
@@ -771,11 +802,6 @@ function updateSharks() {
                             color: '#ff4d4d'
                         });
 
-                        if (target.inventory.some(i => i.id === 'runningTennis')) {
-                            // Ponto 3: Ajustar a velocidade do tênis de 1.5 para 2
-                            target.speed /= 2;
-                            target.originalSpeed /= 2;
-                        }
                         dropHeldItem(target);
 
                         setTimeout(() => {
@@ -902,11 +928,10 @@ function updateGameState() {
         const baseSize = 35;
         player.width = baseSize + Math.sqrt(Math.max(0, player.gems)) * 0.8;
         player.height = player.width * 1.5;
-        player.speed = Math.min(MAX_PLAYER_SPEED, player.originalSpeed + (Math.sqrt(Math.max(0, player.gems)) / 300));
 
-        // Ponto 4: Jogador com a função de atleta (athlete) deve ficar com o dobro de sua velocidade.
-        if (player.activeFunction === 'athlete') {
-            player.speed *= 2;
+        player.speed = Math.min(MAX_PLAYER_SPEED, player.originalSpeed + (Math.sqrt(Math.max(0, player.gems)) / 300));
+        if (player.inventory.some(i => i?.id === 'runningTennis')) {
+            player.speed = 5;
         }
 
         const infectionRadius = player.width * 0.75;
@@ -1126,8 +1151,8 @@ function updateGameState() {
             if (arrow.ownerId === playerId || !player.physicalHitbox || player.isInDuct) continue;
             const distSq = (player.physicalHitbox.cx - arrow.x) ** 2 + (player.physicalHitbox.cy - arrow.y) ** 2;
             if (distSq < (player.physicalHitbox.radius) ** 2) {
-                player.knockbackVx += Math.cos(arrow.angle) * ARROW_KNOCKBACK_IMPULSE;
-                player.knockbackVy += Math.sin(arrow.angle) * ARROW_KNOCKBACK_IMPULSE;
+                player.knockbackVx += Math.cos(arrow.angle) * ARROW_KNOCKBACK_IMPulse;
+                player.knockbackVy += Math.sin(arrow.angle) * ARROW_KNOCKBACK_IMPulse;
                 arrow.hasHit = true;
                 arrow.isStuck = true;
                 arrow.angularVelocity = 0.001;
@@ -1148,7 +1173,7 @@ function updateGameState() {
                 hitWall = true;
                 setTimeout(() => {
                     gameState.arrows = gameState.arrows.filter(a => a.id !== arrow.id);
-                }, 3000); // Remove a flecha após 3 segundos
+                }, 3000);
                 break;
             }
         }
@@ -1176,8 +1201,8 @@ function updateGameState() {
             for (const player of Object.values(gameState.players)) {
                 const distance = Math.hypot(player.x - grenade.x, player.y - grenade.y);
                 if (distance < GRENADE_RADIUS) {
-                    const knockback = (1 - (distance / GRENADE_RADIUS)) * GRENADE_KNOCKBACK_IMPULSE;
-                    const angle = Math.atan2(player.y - grenade.y, player.x - grenade.x);
+                    const knockback = (1 - (distance / GRENADE_RADIUS)) * GRENADE_KNOCKBACK_IMPulse;
+                    const angle = Math.atan2(playerCenterY - grenade.y, playerCenterX - grenade.x);
                     player.knockbackVx += Math.cos(angle) * knockback;
                     player.knockbackVy += Math.sin(angle) * knockback;
                 }
@@ -1236,31 +1261,44 @@ function updateGameState() {
         }
     }
 
-    const portalsByOwner = {};
-    for (const portal of gameState.portals) {
-        if (!portalsByOwner[portal.ownerId]) portalsByOwner[portal.ownerId] = [];
-        portalsByOwner[portal.ownerId].push(portal);
-    }
-    for (const ownerId in portalsByOwner) {
-        if (portalsByOwner[ownerId].length === 2) {
-            const [portalA, portalB] = portalsByOwner[ownerId];
-            for (const player of Object.values(gameState.players)) {
-                if (now > (player.portalCooldownUntil || 0)) {
+    if (now > gameState.lastPortalUseTimestamp) {
+        const portalsByOwner = {};
+        for (const portal of gameState.portals) {
+            if (!portalsByOwner[portal.ownerId]) portalsByOwner[portal.ownerId] = [];
+            portalsByOwner[portal.ownerId].push(portal);
+        }
+
+        for (const ownerId in portalsByOwner) {
+            if (portalsByOwner[ownerId].length === 2) {
+                const [portalA, portalB] = portalsByOwner[ownerId];
+                for (const player of Object.values(gameState.players)) {
                     const playerBody = world.bodies.find(b => b.playerId === player.id);
                     if (!playerBody) continue;
+
+                    let teleported = false;
                     if (Math.hypot(playerBody.position.x - portalA.x, playerBody.position.y - portalA.y) < PORTAL_SIZE / 2) {
                         Matter.Body.setPosition(playerBody, {
                             x: portalB.x,
                             y: portalB.y
                         });
-                        player.portalCooldownUntil = now + PORTAL_COOLDOWN;
+                        teleported = true;
                     } else if (Math.hypot(playerBody.position.x - portalB.x, playerBody.position.y - portalB.y) < PORTAL_SIZE / 2) {
                         Matter.Body.setPosition(playerBody, {
                             x: portalA.x,
                             y: portalA.y
                         });
-                        player.portalCooldownUntil = now + PORTAL_COOLDOWN;
+                        teleported = true;
                     }
+
+                    if (teleported) {
+                        gameState.lastPortalUseTimestamp = now + PORTAL_COOLDOWN;
+                        break;
+                    }
+                }
+                if (now > gameState.lastPortalUseTimestamp) {
+                    continue;
+                } else {
+                    break;
                 }
             }
         }
@@ -1319,7 +1357,7 @@ function setupCollisionEvents() {
 
                     const forceDirection = Matter.Vector.normalise(playerBody.velocity);
                     if (Matter.Vector.magnitudeSquared(forceDirection) > 0) {
-                        const force = Matter.Vector.mult(forceDirection, forceMagnitude / 100);
+                        const force = Matter.Vector.mult(forceDirection, forceMagnitude / 100000);
                         const contactPoint = pair.collision.supports[0] || objectBody.position;
 
                         Matter.Body.applyForce(objectBody, contactPoint, force);
@@ -1368,16 +1406,6 @@ function setupCollisionEvents() {
                             }, BUTTERFLY_DURATION);
                             continue;
                         }
-                        if (human.hasAntidoteEffect) {
-                            human.hasAntidoteEffect = false;
-                            if (Math.random() < 0.75) continue;
-                        }
-                        if (human.inventory.some(i => i.id === 'runningTennis')) {
-                            // Ponto 3: Ajustar a velocidade do tênis de 1.5 para 2
-                            human.speed /= 2;
-                            human.originalSpeed /= 2;
-                        }
-
                         dropHeldItem(human);
                         if (human.isSpying) human.isSpying = false;
 
@@ -1420,12 +1448,146 @@ function setupCollisionEvents() {
 }
 
 io.on('connection', (socket) => {
-    console.log('New player connected:', socket.id);
+    console.log(`[SERVIDOR] Conexão recebida. ID do Socket: ${socket.id}`);
+
     createNewPlayer(socket);
 
-    socket.on('setNickname', (nickname) => {
+    socket.on("register", ({
+        username,
+        password
+    }) => {
+        if (users[username]) return socket.emit("registerError", "Usuário já existe!");
+        const id = generateID();
+        users[username] = {
+            id,
+            username,
+            password,
+            color: "#3498db",
+            photo: null,
+            editedName: false,
+            friends: [],
+            requests: []
+        };
+        saveUsers();
+        socket.emit("registerSuccess", users[username]);
+    });
+
+    socket.on("login", ({
+        username,
+        password
+    }) => {
+        if (!users[username] || users[username].password !== password)
+            return socket.emit("loginError", "Usuário ou senha incorretos!");
+
+        socket.username = username;
+        sockets[username] = socket.id;
+        if (!messages[username]) messages[username] = {};
+        socket.emit("loginSuccess", users[username]);
+
         const player = gameState.players[socket.id];
-        if (player && nickname) player.name = String(nickname).trim().substring(0, 10) || player.name;
+        if (player) {
+            player.name = username;
+        }
+    });
+
+    socket.on("newLink", url => {
+        links.push(url);
+        saveLinks();
+        socket.broadcast.emit("broadcastLink", url);
+    });
+    socket.on("checkUserExists", (username, callback) => callback(!!users[username]));
+    socket.on("friendRequest", ({
+        from,
+        to,
+        photo
+    }) => {
+        const targetSocket = sockets[to];
+        if (targetSocket) {
+            io.to(targetSocket).emit("friendRequestNotification", {
+                from,
+                photo
+            });
+        } else {
+            if (users[to]) {
+                users[to].requests.push(from);
+                saveUsers();
+            }
+        }
+    });
+    socket.on("acceptRequest", ({
+        from,
+        to
+    }) => {
+        if (users[from] && users[to]) {
+            users[from].friends.push(to);
+            users[to].friends.push(from);
+            users[to].requests = users[to].requests.filter(r => r !== from);
+            saveUsers();
+        }
+        const targetSocket = sockets[from];
+        if (targetSocket) {
+            io.to(targetSocket).emit("friendAccepted", {
+                from: to
+            });
+        }
+    });
+    socket.on("rejectRequest", ({
+        from,
+        to
+    }) => {
+        if (users[to]) {
+            users[to].requests = users[to].requests.filter(r => r !== from);
+            saveUsers();
+        }
+    });
+    socket.on("dm", ({
+        to,
+        msg
+    }) => {
+        const targetSocket = sockets[to];
+        if (targetSocket) io.to(targetSocket).emit("dm", {
+            from: socket.username,
+            msg
+        });
+    });
+    socket.on("changeName", ({
+        oldName,
+        newName
+    }) => {
+        if (users[oldName] && !users[newName]) {
+            users[newName] = { ...users[oldName],
+                username: newName
+            };
+            delete users[oldName];
+            saveUsers();
+        }
+    });
+    socket.on("changePassword", ({
+        username,
+        newPass
+    }) => {
+        if (users[username]) {
+            users[username].password = newPass;
+            saveUsers();
+        }
+    });
+    socket.on("changeColor", ({
+        username,
+        color
+    }) => {
+        if (users[username]) {
+            users[username].color = color;
+            saveUsers();
+        }
+    });
+    socket.on("changePhoto", ({
+        username,
+        photo
+    }) => {
+        if (users[username]) {
+            users[username].photo = photo;
+            saveUsers();
+        }
     });
 
     socket.on('playerInput', (inputData) => {
@@ -1504,10 +1666,10 @@ io.on('connection', (socket) => {
         let cost, itemData;
         switch (itemId) {
             case 'inventoryUpgrade':
-                cost = 2000;
+                cost = 20000;
                 break;
             case 'skateboard':
-                cost = 5000;
+                cost = 10000;
                 itemData = { ...gameState.skateboard,
                     ownerId: player.id
                 };
@@ -1520,14 +1682,14 @@ io.on('connection', (socket) => {
                 };
                 break;
             case 'invisibilityCloak':
-                cost = 5000;
+                cost = 10000;
                 itemData = {
                     id: 'invisibilityCloak',
                     active: false
                 };
                 break;
             case "gravityGlove":
-                cost = 2000;
+                cost = 5000;
                 itemData = {
                     id: 'gravityGlove',
                     uses: 2
@@ -1540,21 +1702,21 @@ io.on('connection', (socket) => {
                 };
                 break;
             case 'cannon':
-                cost = 3000;
+                cost = 5000;
                 itemData = {
                     id: 'cannon',
                     cooldownUntil: 0
                 };
                 break;
             case 'bow':
-                cost = 1000;
+                cost = 2000;
                 itemData = {
                     id: 'bow',
                     ammo: 200
                 };
                 break;
             case 'angelWings':
-                cost = 20000;
+                cost = 30000;
                 itemData = {
                     id: 'angelWings',
                     cooldownUntil: 0
@@ -1610,7 +1772,18 @@ io.on('connection', (socket) => {
                 const antidote = player.inventory.find(i => i.id === 'antidote');
                 if (antidote) {
                     player.inventory = player.inventory.filter(i => i.id !== 'antidote');
-                    player.hasAntidoteEffect = true;
+                    if (gameState.gamePhase === 'waiting') {
+                        player.initialZombieProtection = 0.50;
+                    }
+                }
+                break;
+            case 'use_magic_antidote':
+                const magicAntidote = player.inventory.find(i => i.id === 'magicAntidote');
+                if (magicAntidote) {
+                    player.inventory = player.inventory.filter(i => i.id !== 'magicAntidote');
+                    if (gameState.gamePhase === 'waiting') {
+                        player.initialZombieProtection = 0.99;
+                    }
                 }
                 break;
             case 'place_portal':
@@ -1641,12 +1814,16 @@ io.on('connection', (socket) => {
                 }
                 break;
             case 'zombie_item':
+                const dropDistance = player.width;
+                const dropX = player.x + player.width / 2 + Math.cos(player.rotation) * dropDistance;
+                const dropY = player.y + player.height / 2 + Math.sin(player.rotation) * dropDistance;
+
                 if (player.role === 'zombie' && player.zombieAbility === 'trap' && player.trapsLeft > 0) {
                     player.trapsLeft--;
                     gameState.traps.push({
                         id: nextTrapId++,
-                        x: player.x,
-                        y: player.y,
+                        x: dropX - TRAP_SIZE / 2,
+                        y: dropY - TRAP_SIZE / 2,
                         width: TRAP_SIZE,
                         height: TRAP_SIZE,
                         target: 'human'
@@ -1656,8 +1833,8 @@ io.on('connection', (socket) => {
                     gameState.mines.push({
                         id: `mine_${nextMineId++}`,
                         ownerId: player.id,
-                        x: player.x,
-                        y: player.y,
+                        x: dropX - MINE_SIZE / 2,
+                        y: dropY - MINE_SIZE / 2,
                         width: MINE_SIZE,
                         height: MINE_SIZE,
                         createdAt: now
@@ -1790,11 +1967,6 @@ io.on('connection', (socket) => {
                         player.inventory.splice(player.selectedSlot, 1);
                     } else {
                         player.inventory.splice(player.selectedSlot, 1);
-                        if (selectedItem.id === 'runningTennis') {
-                            // Ponto 3: Ajustar a velocidade do tênis de 1.5 para 2
-                            player.speed /= 2;
-                            player.originalSpeed /= 2;
-                        }
                         dropHeldItem({ ...player,
                             inventory: [selectedItem]
                         });
@@ -1828,7 +2000,6 @@ io.on('connection', (socket) => {
                 if (currentItemCount < player.inventorySlots && player.role !== 'zombie') {
                     for (let i = gameState.groundItems.length - 1; i >= 0; i--) {
                         const item = gameState.groundItems[i];
-                        // Ponto 5: Corrigir a lógica de pickup para ser de centro a centro e mais intuitiva
                         const playerCenterX = player.x + player.width / 2;
                         const playerCenterY = player.y + player.height / 2;
                         const itemCenterX = item.x + item.width / 2;
@@ -1871,9 +2042,6 @@ io.on('connection', (socket) => {
                             });
                             tennis.ownerId = player.id;
                             tennis.spawned = false;
-                            // Ponto 3: Tênis de corrida agora dá 100% a mais de velocidade (dobro)
-                            player.speed *= 2;
-                            player.originalSpeed *= 2;
                             return;
                         }
                     }
@@ -1915,15 +2083,12 @@ io.on('connection', (socket) => {
 
     socket.on('disconnect', () => {
         console.log('Player disconnected:', socket.id);
+        if (socket.username) delete sockets[socket.username];
         const player = gameState.players[socket.id];
         if (player) {
             const playerBody = world.bodies.find(b => b.playerId === socket.id);
             if (playerBody) Matter.World.remove(world, playerBody);
-            if (player.inventory.some(i => i.id === 'runningTennis')) {
-                // Ponto 3: Ajustar a velocidade do tênis de 1.5 para 2
-                player.speed /= 2;
-                player.originalSpeed /= 2;
-            }
+
             if (player.carryingObject) {
                 const obj = player.carryingObject;
                 const newBody = Matter.Bodies.rectangle(player.x, player.y, obj.width, obj.height, {
@@ -1944,35 +2109,48 @@ io.on('connection', (socket) => {
 });
 
 setInterval(() => {
-    if (!gameState || !gameState.players || Object.keys(gameState.players).length <= 1) return;
+    if (!gameState || !gameState.players || Object.keys(gameState.players).length <= 1) {
+        if (gameState.gamePhase === 'running' || gameState.gamePhase === 'post-round') {
+            io.emit('newMessage', {
+                name: 'Server',
+                text: 'Not enough players. Waiting for more...'
+            });
+            startNewRound();
+        }
+        return;
+    }
+
     if (gameState.gamePhase === 'waiting') {
         gameState.startTime--;
         if (gameState.startTime <= 0) {
             gameState.gamePhase = 'running';
             gameState.timeLeft = ROUND_DURATION;
-            const playerIds = Object.keys(gameState.players);
-            if (playerIds.length > 0) {
-                const zombieId = playerIds[Math.floor(Math.random() * playerIds.length)];
-                const zombiePlayer = gameState.players[zombieId];
-                if (zombiePlayer.inventory.some(i => i.id === 'runningTennis')) {
-                    // Ponto 3: Ajustar a velocidade do tênis de 1.5 para 2
-                    zombiePlayer.speed /= 2;
-                    zombiePlayer.originalSpeed /= 2;
+            const playerList = Object.values(gameState.players);
+            if (playerList.length > 0) {
+                const candidates = playerList.filter(p => Math.random() > (p.initialZombieProtection || 0));
+                let chosenPlayer;
+                if (candidates.length > 0) {
+                    chosenPlayer = candidates[Math.floor(Math.random() * candidates.length)];
+                } else {
+                    chosenPlayer = playerList[Math.floor(Math.random() * playerList.length)];
                 }
-                dropHeldItem(zombiePlayer);
-                zombiePlayer.role = 'zombie';
 
-                const oldBody = world.bodies.find(b => b.playerId === zombiePlayer.id);
-                if (oldBody) {
-                    const {
-                        position,
-                        velocity
-                    } = oldBody;
-                    Matter.World.remove(world, oldBody);
-                    const newBody = createPlayerBody(zombiePlayer);
-                    Matter.Body.setPosition(newBody, position);
-                    Matter.Body.setVelocity(newBody, velocity);
-                    Matter.World.add(world, newBody);
+                if (chosenPlayer) {
+                    dropHeldItem(chosenPlayer);
+                    chosenPlayer.role = 'zombie';
+
+                    const oldBody = world.bodies.find(b => b.playerId === chosenPlayer.id);
+                    if (oldBody) {
+                        const {
+                            position,
+                            velocity
+                        } = oldBody;
+                        Matter.World.remove(world, oldBody);
+                        const newBody = createPlayerBody(chosenPlayer);
+                        Matter.Body.setPosition(newBody, position);
+                        Matter.Body.setVelocity(newBody, velocity);
+                        Matter.World.add(world, newBody);
+                    }
                 }
             }
         }
@@ -2076,6 +2254,7 @@ function startNewRound() {
             trapsLeft: 0,
             minesLeft: 0,
             hasAntidoteEffect: false,
+            initialZombieProtection: 0,
             draggedBy: null,
             draggedUntil: null,
             isBeingEaten: false,
@@ -2115,13 +2294,34 @@ function startNewRound() {
         });
     }
 
-    if (Math.random() < 0.10) { // 10% de chance de dropar as asas de anjo
+    const spawnAreas = [
+        ...gameState.objects.filter(o => !o.isStatic),
+        ...gameState.sunshades,
+        ...gameState.ducts
+    ];
+    if (spawnAreas.length > 0) {
+        const numToSpawn = Math.floor(Math.random() * 6) + 5; // 5 to 10
+        for (let i = 0; i < numToSpawn; i++) {
+            const area = spawnAreas[Math.floor(Math.random() * spawnAreas.length)];
+            const spawnX = (area.x + area.width / 2) - (DROPPED_ITEM_SIZE / 2);
+            const spawnY = (area.y + area.height / 2) - (DROPPED_ITEM_SIZE / 2);
+            gameState.groundItems.push({
+                id: 'magicAntidote',
+                x: spawnX,
+                y: spawnY,
+                width: DROPPED_ITEM_SIZE,
+                height: DROPPED_ITEM_SIZE
+            });
+        }
+    }
+
+    if (Math.random() < 0.10) {
         const movableObjects = gameState.objects.filter(o => !o.isStatic);
         const carObject = gameState.objects.find(o => o.id === 'car');
-        const spawnAreas = [...movableObjects, carObject, ...gameState.sunshades].filter(Boolean);
+        const angelSpawnAreas = [...movableObjects, carObject, ...gameState.sunshades].filter(Boolean);
 
-        if (spawnAreas.length > 0) {
-            const randomArea = spawnAreas[Math.floor(Math.random() * spawnAreas.length)];
+        if (angelSpawnAreas.length > 0) {
+            const randomArea = angelSpawnAreas[Math.floor(Math.random() * angelSpawnAreas.length)];
             gameState.groundItems.push({
                 id: 'angelWings',
                 x: randomArea.x + randomArea.width / 2,
@@ -2133,9 +2333,11 @@ function startNewRound() {
     }
 
 
-    if (!Object.values(gameState.players).some(p => p.inventory.some(i => i && i.id === 'runningTennis'))) {
+    const shoesAlreadyInPlay = Object.values(gameState.players).some(p => p.inventory.some(i => i && i.id === 'runningTennis'));
+    gameState.runningTennis.spawned = false;
+    gameState.runningTennis.ownerId = null;
+    if (!shoesAlreadyInPlay && Math.random() < 0.30) {
         gameState.runningTennis.spawned = true;
-        gameState.runningTennis.ownerId = null;
         let spawnX, spawnY;
         do {
             spawnX = Math.random() * (WORLD_WIDTH - 100);

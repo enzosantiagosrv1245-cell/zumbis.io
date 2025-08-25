@@ -1,5 +1,6 @@
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
+// const socket = io(); // Assuming socket is initialized in HTML
 
 (function setup() {
     const chatInput = document.getElementById('chatInput');
@@ -64,6 +65,7 @@ const droneSprite = loadImage('Sprites/Drone.png');
 const grenadeSprite = loadImage('Sprites/Grenade.png');
 const invisibilityCloakSprite = loadImage('Sprites/InvisibilityCloak.png');
 const antidoteSprite = loadImage('Sprites/Antidote.png');
+const magicAntidoteSprite = loadImage('Sprites/MagicAntidote.png');
 const trapSprite = loadImage('Sprites/Trap.png');
 const mineSprite = loadImage('Sprites/Mine.png');
 const gravityGloveSprite = loadImage('Sprites/GravityGlove.png');
@@ -74,13 +76,12 @@ const portalsSprite = loadImage('Sprites/Portals.png');
 const inventoryUpgradeSprite = loadImage('Sprites/Slot.png');
 const runningTennisSprite = loadImage('Sprites/runningTennis.png');
 const bowSprite = loadImage('Sprites/Bow.png');
-const arrowSprite = loadImage('Sprites/Arrow.png'); // Imagem da flecha
-const sharkSprite = loadImage('Sprites/Shark.png'); // Imagem do tubarão
-const gemSprite = loadImage('Sprites/Gem.png'); // Sprite da gema
-const angelWingsSprite = loadImage('Sprites/AngelWings.png'); // Sprite da Asa de Anjo
-const wallSprite = loadImage('Sprites/BrickWall.png'); // Sprite da parede da casa
-const wallSprite2 = loadImage('Sprites/BrickWall2.png'); // Sprite da parede da garagem
-// Ponto 1: Lógica da auréola removida. A linha do 'haloSprite' foi deletada.
+const arrowSprite = loadImage('Sprites/Arrow.png');
+const sharkSprite = loadImage('Sprites/Shark.png');
+const gemSprite = loadImage('Sprites/Gem.png');
+const angelWingsSprite = loadImage('Sprites/AngelWings.png');
+const wallSprite = loadImage('Sprites/BrickWall.png');
+const wallSprite2 = loadImage('Sprites/BrickWall2.png');
 
 const itemSprites = {
     skateboard: skateboardSprite,
@@ -88,6 +89,7 @@ const itemSprites = {
     invisibilityCloak: invisibilityCloakSprite,
     card: cardSprite,
     antidote: antidoteSprite,
+    magicAntidote: magicAntidoteSprite,
     normalGlove: normalGloveSprite,
     gravityGlove: gravityGloveSprite,
     grenade: grenadeSprite,
@@ -99,21 +101,20 @@ const itemSprites = {
     angelWings: angelWingsSprite
 };
 
-// Objeto unificado para sprites de objetos móveis
 const objectSprites = {
     small_bed: smallBed,
     small_table: smallTable,
     big_table: bigTable,
     car: car,
     atm: atmSprite,
-    box: box
+    box: box,
 };
 
 let myId = null;
 let gameState = {
     players: {},
     arrows: [],
-    sharks: [], // Estado dos tubarões
+    sharks: [],
     timeLeft: 120,
     startTime: 60,
     postRoundTimeLeft: 10,
@@ -139,17 +140,16 @@ let mouse = {
 };
 let isMenuOpen = false;
 let isHowToPlayOpen = false;
+let isProfileOpen = false;
 let activeMenuTab = 'functions';
 const chatInput = document.getElementById('chatInput');
 let isChatting = false;
 let chatMessages = [];
 const MAX_MESSAGES = 10;
 
-const socket = io();
-
 socket.on('connect', () => {
     myId = socket.id;
-    showNicknameMenu();
+    // The login screen from your HTML should handle user identification now.
 });
 
 socket.on('gameStateUpdate', (serverState) => {
@@ -171,9 +171,6 @@ socket.on('newMessage', (message) => {
 });
 
 window.addEventListener('keydown', function(event) {
-    if (document.getElementById('nickname-container')) {
-        return;
-    }
     const key = event.key.toLowerCase();
     const me = gameState.players[myId];
 
@@ -192,20 +189,17 @@ window.addEventListener('keydown', function(event) {
         }
     }
 
-    if (key === 'escape' && isChatting) {
-        chatInput.value = '';
-        chatInput.blur();
+    if (key === 'escape') {
+        if (isChatting) {
+            chatInput.value = '';
+            chatInput.blur();
+        } else if (isHowToPlayOpen) {
+            isHowToPlayOpen = false;
+        }
     }
 
     if (isChatting) {
         return;
-    }
-
-    if (key === 'x') {
-        isHowToPlayOpen = !isHowToPlayOpen;
-        if (isHowToPlayOpen) {
-            isMenuOpen = false;
-        }
     }
 
     if (key === 'b') {
@@ -226,11 +220,11 @@ window.addEventListener('keydown', function(event) {
         if (key === 'q') {
             socket.emit('rotateCarriedObject', 'left');
         } else if (key === 'e') {
-            socket.emit('rotateCarriedObject', 'right');
+            // Ação de rotação para 'E' é tratada aqui especificamente para a luva
         }
     }
 
-    if (isMenuOpen || isHowToPlayOpen) {
+    if (isMenuOpen) {
         return;
     }
 
@@ -287,11 +281,15 @@ window.addEventListener('keydown', function(event) {
                 socket.emit('playerAction', {
                     type: 'use_antidote'
                 });
+            } else if (selectedItem && selectedItem.id === 'magicAntidote') {
+                socket.emit('playerAction', {
+                    type: 'use_magic_antidote'
+                });
             } else {
-                // A rotação com 'E' foi movida para cima, apenas para a gravity glove
-                // Esta ação de interação permanece para pegar itens etc.
                 const hasGravityGlove = me && me.inventory.some(i => i?.id === 'gravityGlove');
-                if (!hasGravityGlove || (hasGravityGlove && !me.carryingObject)) {
+                if (hasGravityGlove && me.carryingObject) {
+                    socket.emit('rotateCarriedObject', 'right');
+                } else {
                     socket.emit('playerAction', {
                         type: 'interact'
                     });
@@ -323,9 +321,6 @@ window.addEventListener('keydown', function(event) {
 });
 
 window.addEventListener('keyup', function(event) {
-    if (document.getElementById('nickname-container')) {
-        return;
-    }
     const key = event.key.toLowerCase();
     switch (key) {
         case 'w':
@@ -356,18 +351,42 @@ chatInput.onblur = () => {
 };
 
 canvas.addEventListener('mousemove', function(event) {
-    if (document.getElementById('nickname-container')) {
-        return;
-    }
     const rect = canvas.getBoundingClientRect();
     mouse.x = event.clientX - rect.left;
     mouse.y = event.clientY - rect.top;
 });
 
 canvas.addEventListener('mousedown', function(event) {
-    if (document.getElementById('nickname-container')) {
+    const profileIconRadius = 25;
+    const coinHudWidth = 180;
+    const profileIconX = canvas.width - coinHudWidth - 15 - profileIconRadius - 10;
+    const profileIconY = 15 + 50 / 2;
+    const dist = Math.hypot(mouse.x - profileIconX, mouse.y - profileIconY);
+
+    if (dist < profileIconRadius) {
+        isProfileOpen = !isProfileOpen;
+        isMenuOpen = false;
+        isHowToPlayOpen = false;
         return;
     }
+
+    if (isHowToPlayOpen) {
+        const tabWidth = 1250;
+        const tabHeight = 650;
+        const tabX = (canvas.width - tabWidth) / 2;
+        const tabY = (canvas.height - tabHeight) / 2;
+        const menuRect = {
+            x: tabX,
+            y: tabY,
+            width: tabWidth,
+            height: tabHeight
+        };
+        if (!isClickInside(mouse, menuRect)) {
+            isHowToPlayOpen = false;
+            return;
+        }
+    }
+
     if (isMenuOpen) {
         const me = gameState.players[myId];
         if (!me) return;
@@ -503,92 +522,7 @@ canvas.addEventListener('wheel', function(event) {
     passive: false
 });
 
-function showNicknameMenu() {
-    const existingMenu = document.getElementById('nickname-container');
-    if (existingMenu) return;
-
-    const menuContainer = document.createElement('div');
-    menuContainer.id = 'nickname-container';
-    Object.assign(menuContainer.style, {
-        position: 'absolute',
-        top: '0',
-        left: '0',
-        width: '100%',
-        height: '100%',
-        backgroundColor: 'rgba(0, 0, 0, 0.9)',
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'center',
-        alignItems: 'center',
-        zIndex: '100',
-        fontFamily: 'Arial, sans-serif'
-    });
-
-    const form = document.createElement('form');
-    form.style.textAlign = 'center';
-
-    const title = document.createElement('h2');
-    title.textContent = 'Choose your Nickname';
-    Object.assign(title.style, {
-        color: 'white',
-        marginBottom: '20px',
-        fontSize: '28px'
-    });
-
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.maxLength = 10;
-    input.placeholder = 'Max 10 characters';
-    Object.assign(input.style, {
-        padding: '12px',
-        fontSize: '18px',
-        width: '300px',
-        border: '2px solid #555',
-        borderRadius: '5px',
-        backgroundColor: '#333',
-        color: 'white',
-        textAlign: 'center',
-        display: 'block',
-        margin: '0 auto 20px auto'
-    });
-    input.required = true;
-
-    const button = document.createElement('button');
-    button.type = 'submit';
-    button.textContent = 'Join Game';
-    Object.assign(button.style, {
-        padding: '12px 25px',
-        fontSize: '18px',
-        border: 'none',
-        borderRadius: '5px',
-        backgroundColor: '#2ecc71',
-        color: 'white',
-        cursor: 'pointer'
-    });
-
-    form.appendChild(title);
-    form.appendChild(input);
-    form.appendChild(button);
-    menuContainer.appendChild(form);
-    document.body.appendChild(menuContainer);
-    input.focus();
-
-    form.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const nickname = input.value.trim();
-        if (nickname) {
-            socket.emit('setNickname', nickname);
-            document.body.removeChild(menuContainer);
-        }
-    });
-}
-
 function draw() {
-    if (document.getElementById('nickname-container')) {
-        ctx.fillStyle = 'black';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        return;
-    }
     if (!myId || !gameState.players || !gameState.players[myId]) {
         ctx.fillStyle = 'black';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -618,20 +552,18 @@ function draw() {
     ctx.drawImage(garageFloor, 2000, 1200, 700, 600);
     ctx.drawImage(sea, 4965, 0, 1300, 2000);
 
-    // 1. DESENHA OS TUBARÕES (DEPOIS DO MAR)
     if (gameState.sharks) {
         for (const shark of gameState.sharks) {
             if (sharkSprite.complete) {
                 ctx.save();
                 ctx.translate(shark.x + shark.width / 2, shark.y + shark.height / 2);
-                ctx.rotate(shark.rotation); // Usa a rotação do servidor
+                ctx.rotate(shark.rotation);
                 ctx.drawImage(sharkSprite, -shark.width / 2, -shark.height / 2, shark.width, shark.height);
                 ctx.restore();
             }
         }
     }
 
-    // 2. DESENHA A AREIA (DEPOIS DOS TUBARÕES)
     ctx.drawImage(sand, 4080, 0, 1850, 2000);
     ctx.drawImage(street, 3090, 0, 1000, 2000);
 
@@ -698,7 +630,6 @@ function draw() {
 
     const carriedObjectIds = Object.values(gameState.players).filter(p => p.carryingObject).map(p => p.carryingObject.uniqueId);
 
-    // Lógica de desenho unificada para todos os objetos
     if (gameState.objects) {
         for (const item of gameState.objects) {
             if (carriedObjectIds.includes(item.uniqueId)) continue;
@@ -725,16 +656,14 @@ function draw() {
         ctx.strokeRect(wall.x, wall.y, wall.width, wall.height);
     }
 
-    // Adiciona a textura sobre as paredes da casa
     if (wallSprite.complete && wallSprite.naturalWidth > 0) {
         const spriteSize = 74;
         for (const wall of gameState.house.walls) {
             ctx.save();
             ctx.beginPath();
             ctx.rect(wall.x, wall.y, wall.width, wall.height);
-            ctx.clip(); // Garante que a textura não saia dos limites da parede
+            ctx.clip();
 
-            // Alinha o padrão a uma grade para que paredes adjacentes se conectem visualmente
             const startX = wall.x - (wall.x % spriteSize);
             const startY = wall.y - (wall.y % spriteSize);
 
@@ -743,7 +672,7 @@ function draw() {
                     ctx.drawImage(wallSprite, x, y, spriteSize, spriteSize);
                 }
             }
-            ctx.restore(); // Remove o clip para a próxima parede
+            ctx.restore();
         }
     }
 
@@ -755,7 +684,6 @@ function draw() {
         ctx.strokeRect(wall.x, wall.y, wall.width, wall.height);
     }
 
-    // Adiciona a textura sobre as paredes da garagem
     if (wallSprite2.complete && wallSprite2.naturalWidth > 0) {
         const spriteSize = 74;
         for (const wall of gameState.garage.walls) {
@@ -786,8 +714,6 @@ function draw() {
         }
     }
 
-    // O bloco de código que redesenhava o contorno da garagem foi removido daqui.
-
     if (gameState.obstacles) {
         ctx.strokeStyle = '#c38a51ff';
         ctx.lineWidth = 3;
@@ -809,7 +735,7 @@ function draw() {
         if (player.isFlyingWithWings) {
             ctx.shadowColor = 'rgba(255, 255, 200, 0.9)';
             ctx.shadowBlur = 50;
-        } else if (player.isFlying) { // Mantém o brilho da borboleta
+        } else if (player.isFlying) {
             ctx.shadowColor = 'rgba(255, 255, 255, 0.8)';
             ctx.shadowBlur = 30;
         }
@@ -839,7 +765,6 @@ function draw() {
         }
 
         if (hasAngelWings && angelWingsSprite.complete) {
-            // Ponto 2: Diminuir drasticamente o tamanho da asa de anjo e reposicionar.
             const wingWidth = player.width * 0.7;
             const wingHeight = player.height * 0.7;
             ctx.drawImage(angelWingsSprite, -wingWidth * 0.8, -wingHeight / 2, wingWidth, wingHeight);
@@ -857,7 +782,7 @@ function draw() {
 
         if (player.carryingObject) {
             const carried = player.carryingObject;
-            const sprite = objectSprites[carried.id]; // Usar mapa de sprites unificado
+            const sprite = objectSprites[carried.id];
             if (sprite) {
                 const distance = player.width / 2 + carried.width / 2;
                 ctx.save();
@@ -870,16 +795,43 @@ function draw() {
 
         ctx.restore();
 
-        // Ponto 1: Lógica da auréola removida. O bloco de código que a desenhava foi deletado.
-
         if (!player.isHidden && !player.isInvisible) {
-            ctx.fillStyle = (player.role === 'zombie' || player.isSpying) ? '#2ecc71' : 'white';
-            ctx.strokeStyle = 'black';
+            const isDev = player.name === 'EDDIE' || player.name === 'MINGAU';
+            const nameX = player.x + player.width / 2;
+            const nameY = player.y - 20;
+
             ctx.lineWidth = 5;
-            ctx.textAlign = 'center';
-            ctx.font = '18px Arial';
-            ctx.strokeText(player.name, player.x + player.width / 2, player.y - 20);
-            ctx.fillText(player.name, player.x + player.width / 2, player.y - 20);
+            ctx.strokeStyle = 'black';
+
+            if (isDev) {
+                ctx.font = 'bold 22px Arial';
+                const devTag = 'DEV ';
+                const playerName = player.name;
+                const devTagWidth = ctx.measureText(devTag).width;
+                const nameWidth = ctx.measureText(playerName).width;
+                const totalWidth = devTagWidth + nameWidth;
+                const devTagX = nameX - totalWidth / 2;
+                const playerNameX = devTagX + devTagWidth;
+
+                ctx.textAlign = 'left';
+
+                // Draw DEV tag in red
+                ctx.fillStyle = 'red';
+                ctx.strokeText(devTag, devTagX, nameY);
+                ctx.fillText(devTag, devTagX, nameY);
+
+                // Draw player name
+                ctx.fillStyle = (player.role === 'zombie' || player.isSpying) ? '#2ecc71' : 'white';
+                ctx.strokeText(playerName, playerNameX, nameY);
+                ctx.fillText(playerName, playerNameX, nameY);
+
+            } else {
+                ctx.textAlign = 'center';
+                ctx.font = '18px Arial';
+                ctx.fillStyle = (player.role === 'zombie' || player.isSpying) ? '#2ecc71' : 'white';
+                ctx.strokeText(player.name, nameX, nameY);
+                ctx.fillText(player.name, nameX, nameY);
+            }
         }
     }
 
@@ -954,78 +906,89 @@ function draw() {
     if (isHowToPlayOpen) {
         drawHowToPlayTab();
     }
+    if (isProfileOpen) {
+        drawProfile();
+    }
+}
+
+function drawProfile() {
+    // Este é um placeholder para a interface do perfil.
+    // Você pode adicionar o código para desenhar a tela de perfil aqui.
+    // Exemplo:
+    // ctx.fillStyle = 'rgba(0, 0, 50, 0.9)';
+    // ctx.fillRect(canvas.width / 4, canvas.height / 4, canvas.width / 2, canvas.height / 2);
+    // ctx.fillStyle = 'white';
+    // ctx.font = '30px Arial';
+    // ctx.textAlign = 'center';
+    // ctx.fillText('Tela de Perfil', canvas.width / 2, canvas.height / 2);
 }
 
 function drawHowToPlayTab() {
-    const tabWidth = 950;
-    const tabHeight = 750;
+    const tabWidth = 1250;
+    const tabHeight = 650;
     const tabX = (canvas.width - tabWidth) / 2;
     const tabY = (canvas.height - tabHeight) / 2;
 
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.95)';
-    ctx.strokeStyle = '#2ecc71';
-    ctx.lineWidth = 3;
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+    ctx.strokeStyle = '#555';
+    ctx.lineWidth = 5;
     ctx.beginPath();
     ctx.roundRect(tabX, tabY, tabWidth, tabHeight, [15]);
     ctx.fill();
     ctx.stroke();
 
-    ctx.fillStyle = 'white';
     ctx.textAlign = 'center';
-
-    ctx.font = 'bold 52px Arial';
-    ctx.fillStyle = '#2ecc71';
+    ctx.font = 'bold 52px "Trebuchet MS", sans-serif';
+    ctx.fillStyle = '#FFFFFF';
     ctx.fillText('How to Play', canvas.width / 2, tabY + 80);
 
     ctx.textAlign = 'left';
-    ctx.fillStyle = 'white';
+    ctx.fillStyle = '#FFFFFF';
     const contentX = tabX + 60;
-    let currentY = tabY + 160;
+    let currentY = tabY + 150;
 
-    ctx.font = 'bold 30px Arial';
+    ctx.font = 'bold 28px "Trebuchet MS", sans-serif';
     ctx.fillText('Objective', contentX, currentY);
     currentY += 15;
-    ctx.fillStyle = '#2ecc71';
+    ctx.fillStyle = '#888';
     ctx.fillRect(contentX, currentY, 140, 3);
-    currentY += 45;
+    currentY += 40;
 
-    ctx.fillStyle = 'white';
-    ctx.font = '20px Arial';
-    ctx.fillText('• Humans: Survive until the timer runs out. Collect coins to buy abilities and items.', contentX, currentY);
-    currentY += 35;
+    ctx.fillStyle = '#DDDDDD';
+    ctx.font = '18px Arial';
+    ctx.fillText('• Humans: Survive until the timer runs out. Collect coins to buy functions and items.', contentX, currentY);
+    currentY += 30;
     ctx.fillText('• Zombies: Infect all humans before the time runs out.', contentX, currentY);
-    currentY += 70;
+    currentY += 60;
 
-    ctx.font = 'bold 30px Arial';
+    ctx.font = 'bold 28px "Trebuchet MS", sans-serif';
+    ctx.fillStyle = '#FFFFFF';
     ctx.fillText('Controls', contentX, currentY);
     currentY += 15;
-    ctx.fillStyle = '#2ecc71';
+    ctx.fillStyle = '#888';
     ctx.fillRect(contentX, currentY, 130, 3);
-    currentY += 45;
+    currentY += 40;
 
-    ctx.fillStyle = 'white';
-    ctx.font = '20px Arial';
+    ctx.fillStyle = '#DDDDDD';
+    ctx.font = '18px Arial';
     const controls = [
-        ['W, A, S, D / Arrow Keys', 'Move your character.'],
-        ['Mouse', 'Aim your character or abilities.'],
-        ['Left Click', 'Use primary action (shoot, punch, etc).'],
-        ['1, 2', 'Select inventory slot.'],
-        ['B', 'Open the Shop menu.'],
-        ['C', 'Use ability / Consume item.'],
-        ['E', 'Interact with objects or pick up items.'],
-        ['G', 'Drop your current held item.'],
-        ['Z', '(Zombie only) Teleport back to spawn.'],
-        ['X', 'Open/Close this "How to Play" tab.'],
-        ['Enter', 'Open or send a chat message.'],
+        ['W, A, S, D / Arrow Keys', 'Move your character. (Mova seu personagem)'],
+        ['Left Click', 'Use primary action (shoot, punch, etc). (Use a ação primária (atirar, socar, etc))'],
+        ['B', 'Open the Shop menu. (Abra a loja para comprar itens)'],
+        ['C', 'Use functions. (Use as funções)'],
+        ['E', 'Interact with objects or pick up/use items. (Interaja com objetos ou pegue/use itens)'],
+        ['G', 'Drop items. (Solte itens)'],
+        ['Z', '(Zombie only) Teleport back to spawn. (Teletransporte-se de volta para o spawn)'],
+        ['Enter', 'Open or send a chat message. (Abra ou envie uma mensagem de bate-papo)'],
     ];
 
     const keyColWidth = 320;
     for (const [key, desc] of controls) {
-        ctx.font = 'bold 20px Arial';
+        ctx.font = 'bold 18px Arial';
         ctx.fillText(key + ':', contentX, currentY);
-        ctx.font = '20px Arial';
+        ctx.font = '18px Arial';
         ctx.fillText(desc, contentX + keyColWidth, currentY);
-        currentY += 35;
+        currentY += 30;
     }
 }
 
@@ -1047,11 +1010,22 @@ function drawHudBackgrounds() {
     ctx.fill();
     ctx.stroke();
 
-    // Ponto 1: Redimensionar e reposicionar o fundo do HUD para caber apenas a velocidade
     const rightHudWidth = 200;
     ctx.beginPath();
     ctx.roundRect(canvas.width - rightHudWidth - 15, canvas.height - 75, rightHudWidth, 60, [10]);
     ctx.fill();
+    ctx.stroke();
+
+    // Ícone de Perfil
+    const profileIconRadius = 25;
+    const profileIconX = canvas.width - coinHudWidth - 15 - profileIconRadius - 10;
+    const profileIconY = 15 + 50 / 2;
+    ctx.beginPath();
+    ctx.arc(profileIconX, profileIconY, profileIconRadius, 0, Math.PI * 2);
+    ctx.fillStyle = '#00FFFF'; // Ciano
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.lineWidth = 3;
     ctx.stroke();
 }
 
@@ -1093,7 +1067,6 @@ function drawHudText(me) {
     ctx.fillStyle = 'gold';
     ctx.textAlign = 'right';
 
-    // Lógica do sprite da gema no HUD principal
     const gemCountText = `${Math.floor(me.gems)}`;
     const textX = canvas.width - 35;
     const textY = 52;
@@ -1107,13 +1080,11 @@ function drawHudText(me) {
         ctx.drawImage(gemSprite, iconX, iconY, iconSize, iconSize);
     }
 
-    // Ponto 1: Remover toda a lógica do HUD inferior direito, exceto a velocidade
     ctx.textAlign = 'right';
     ctx.fillStyle = 'white';
     ctx.font = '24px Arial';
 
-    // HUD inferior direito (Apenas Velocidade)
-    const displayedSpeed = Math.min(3, Math.max(0, me.speed - 1.5));
+    const displayedSpeed = Math.min(3, Math.max(0, me.speed - 2));
     ctx.fillText(`SPEED: ${displayedSpeed.toFixed(2)}`, canvas.width - 30, canvas.height - 40);
 }
 
@@ -1166,7 +1137,6 @@ function drawInventory() {
                     }
                 }
 
-                // Ponto 2: Lógica para desenhar a munição no slot do inventário
                 let ammoText = null;
                 if (item.id === 'bow' && typeof item.ammo === 'number') {
                     ammoText = item.ammo;
@@ -1470,27 +1440,25 @@ function drawHumanMenu(me) {
                     const centerX = imgX + drawWidth / 2;
                     const centerY = imgY + drawHeight / 2;
                     ctx.translate(centerX, centerY);
-                    ctx.rotate(-Math.PI / 2); // Rotaciona 90 graus
+                    ctx.rotate(-Math.PI / 2);
                     ctx.drawImage(sprite, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
                     ctx.restore();
                 } else {
                     ctx.drawImage(sprite, imgX, imgY, drawWidth, drawHeight);
                 }
             }
-            
-            // CORREÇÃO: Centralizar o texto do item na área à direita do ícone
+
             ctx.textAlign = 'center';
             const textCenterX = btn.rect.x + 120 + (btn.rect.width - 120) / 2;
 
             ctx.font = '20px Arial';
             ctx.fillStyle = canBuy ? 'white' : '#999';
             ctx.fillText(btn.text, textCenterX, btn.rect.y + 50);
-            
+
             ctx.font = '12px Arial';
             ctx.fillStyle = canBuy ? '#ccc' : '#888';
             ctx.fillText(btn.description, textCenterX, btn.rect.y + 85);
 
-            // CORREÇÃO: Reposicionar a gema para o local original (canto inferior direito)
             ctx.font = '24px Arial';
             ctx.fillStyle = canAfford ? 'gold' : 'red';
             const costNumber = `${btn.price}`;
@@ -1608,7 +1576,7 @@ function getItemsLayout() {
     }, {
         id: 'antidote',
         text: 'ANTIDOTE',
-        description: 'Gives a chance to resist infection',
+        description: 'Reduces chance of being zombie',
         price: 200,
         sprite: antidoteSprite
     }];
@@ -1640,13 +1608,13 @@ function getRareItemsLayout() {
         id: 'inventoryUpgrade',
         text: 'SLOT',
         description: 'Unlocks a second slot',
-        price: 2000,
+        price: 20000,
         sprite: inventoryUpgradeSprite
     }, {
         id: 'skateboard',
         text: 'SKATEBOARD',
         description: 'Move faster',
-        price: 3000,
+        price: 10000,
         sprite: skateboardSprite
     }, {
         id: 'drone',
@@ -1658,13 +1626,13 @@ function getRareItemsLayout() {
         id: 'invisibilityCloak',
         text: 'CLOAK',
         description: 'Become invisible',
-        price: 5000,
+        price: 10000,
         sprite: invisibilityCloakSprite
     }, {
         id: 'gravityGlove',
         text: 'GRAVITY GLOVE',
         description: 'Pick up (E) and drop (G) objects',
-        price: 2000,
+        price: 5000,
         sprite: gravityGloveSprite
     }, {
         id: 'portals',
@@ -1676,19 +1644,19 @@ function getRareItemsLayout() {
         id: 'cannon',
         text: 'CANNON',
         description: 'Fires a powerful cannonball',
-        price: 3000,
+        price: 5000,
         sprite: cannonSprite
     }, {
         id: 'bow',
         text: 'BOW',
         description: 'Shoot arrows to slow enemies',
-        price: 1000,
+        price: 2000,
         sprite: bowSprite
     }, {
         id: 'angelWings',
         text: 'ANGEL WINGS',
         description: 'Become an angel',
-        price: 20000,
+        price: 30000,
         sprite: angelWingsSprite
     }];
     const menuWidth = 1500,
@@ -1773,7 +1741,7 @@ function getZombieAbilitiesTabRect() {
 }
 
 function gameLoop() {
-    if (myId && gameState.players[myId] && !document.getElementById('nickname-container')) {
+    if (myId && gameState.players[myId]) {
         const me = gameState.players[myId];
         const rot = getPlayerAngle(me);
         const zoomLevel = 0.67;
@@ -1794,4 +1762,8 @@ function gameLoop() {
     requestAnimationFrame(gameLoop);
 }
 
-gameLoop();
+// gameLoop();
+
+function startGame() {
+    gameLoop();
+}
