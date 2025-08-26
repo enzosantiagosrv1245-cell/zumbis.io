@@ -657,7 +657,7 @@ function createNewPlayer(socket) {
         role: 'human',
         selectedSlot: 0,
         activeFunction: ' ',
-        gems: 1000,
+        gems: 50000,
         isSprinting: false,
         sprintAvailable: true,
         isSpying: false,
