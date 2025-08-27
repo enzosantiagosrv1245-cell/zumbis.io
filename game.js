@@ -44,7 +44,6 @@ const floors = loadImage('Sprites/Floor.png');
 const floor2 = loadImage('Sprites/Floor2.png'); // NOVO: Carrega a imagem do novo chão
 const garageFloor = loadImage('Sprites/garageFloor.png');
 const smallBed = loadImage('Sprites/smallBed.png');
-const smallTable = loadImage('Sprites/smallTable.png');
 const bigTable = loadImage('Sprites/bigTable.png');
 const car = loadImage('Sprites/Car.png');
 const skateboardSprite = loadImage('Sprites/Skateboard.png');
@@ -78,7 +77,6 @@ const bigBed2 = loadImage('Sprites/BigBed2.png');
 const miniSofa = loadImage('Sprites/MiniSofa.png');
 const miniSofa2 = loadImage('Sprites/MiniSofa2.png');
 const sofa = loadImage('Sprites/Sofa.png');
-const sofa2 = loadImage('Sprites/Sofa2.png');
 const squareTable = loadImage('Sprites/SquareTable.png');
 const parkBenchSprite = loadImage('Sprites/ParkBench.png');
 const poolTableSprite = loadImage('Sprites/PoolTable.png');
@@ -107,7 +105,6 @@ const itemSprites = {
 
 const objectSprites = {
     small_bed: smallBed,
-    small_table: smallTable,
     big_table: bigTable,
     car: car,
     atm: atmSprite,
@@ -117,7 +114,6 @@ const objectSprites = {
     mini_sofa: miniSofa,
     mini_sofa2: miniSofa2,
     sofa: sofa,
-    sofa2: sofa2,
     square_table: squareTable,
     park_bench: parkBenchSprite,
     pool_table: poolTableSprite

@@ -165,7 +165,6 @@ function getDensityById(id) {
         case 'big_table':
             return 0.0008;;
         case 'sofa':
-        case 'sofa2':
         case 'big_bed':
         case 'big_bed2':
             return 0.0008;
