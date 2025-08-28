@@ -2667,4 +2667,3 @@ server.listen(PORT, () => {
     initializeGame();
     console.log(`🚀 Game server running at http://localhost:${PORT}`);
 });
-

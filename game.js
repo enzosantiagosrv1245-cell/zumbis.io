@@ -2156,4 +2156,3 @@ function gameLoop() {
 function startGame() {
     gameLoop();
 }
-
