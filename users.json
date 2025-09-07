@@ -18,5 +18,25 @@
     "editedName": false,
     "friends": [],
     "requests": []
+  },
+  "huh": {
+    "id": "ID935256",
+    "username": "huh",
+    "password": "huh",
+    "color": "#3498db",
+    "photo": null,
+    "editedName": false,
+    "friends": [],
+    "requests": []
+  },
+  "MINGAU": {
+    "id": "ID238217",
+    "username": "MINGAU",
+    "password": "dev",
+    "color": "#3498db",
+    "photo": null,
+    "editedName": false,
+    "friends": [],
+    "requests": []
   }
 }
