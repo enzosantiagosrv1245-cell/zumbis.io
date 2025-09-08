@@ -1,125 +1,89 @@
-const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d');
+const express = require('express');
+const http = require('http');
+const { Server } = require("socket.io");
+const Matter = require('matter-js');
+const fs = require('fs-extra');
+const path = require('path');
 
-const socket = io(); // conecta com o servidor
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server);
 
-// Recebe mensagens do servidor
-socket.on('chatMessage', (msg) => {
-    console.log("[Servidor]", msg);
-    // Aqui você pode exibir a mensagem no chat do jogo
-});
+const PORT = process.env.PORT || 3000;
 
-// Recebe comando de teleporte
-socket.on('teleportPlayer', ({ x, y }) => {
-    if (player) {
-        player.x = x;
-        player.y = y;
-        console.log(`🔁 Teleportado para X: ${x}, Y: ${y}`);
-    }
-});
+app.use(express.static(__dirname));
+app.use(express.json());
 
+// conexões socket
+io.on('connection', (socket) => {
+    console.log(`🟢 Jogador conectado: ${socket.id}`);
 
-(function setup() {
-    const chatInput = document.getElementById('chatInput');
-    const body = document.body;
-    Object.assign(body.style, {
-        backgroundColor: '#000000',
-        margin: '0',
-        overflow: 'hidden'
+    socket.on('chatMessage', (msg) => {
+        if (typeof msg !== 'string') return;
+
+        const trimmed = msg.trim();
+
+        // Comando: /tp x y
+        if (trimmed.startsWith('/tp')) {
+            const args = trimmed.split(' ');
+            if (args.length === 3) {
+                const x = parseFloat(args[1]);
+                const y = parseFloat(args[2]);
+                if (!isNaN(x) && !isNaN(y)) {
+                    socket.emit('teleportPlayer', { x, y });
+                    socket.emit('chatMessage', `📍 Teleportado para X: ${x}, Y: ${y}`);
+                    return;
+                }
+            }
+            socket.emit('chatMessage', '❌ Uso: /tp [x] [y]');
+            return;
+        }
+
+        // Outros comandos aqui...
+
+        // Se não for comando, envia para todos como chat normal
+        io.emit('chatMessage', `[${socket.id}]: ${msg}`);
     });
-    // Estilos do chatInput foram movidos para o style.css para melhor organização
-    chatInput.maxLength = 57;
 
-    function resizeCanvas() {
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
-    }
-    resizeCanvas();
-    window.addEventListener('resize', resizeCanvas);
-})();
+    socket.on('disconnect', () => {
+        console.log(`🔴 Jogador desconectado: ${socket.id}`);
+    });
+});
 
-function loadImage(src) {
-    const img = new Image();
-    img.src = src;
-    return img;
+const USERS_FILE = path.join(__dirname, "users.json");
+const MESSAGES_FILE = path.join(__dirname, "messages.json");
+const LINKS_FILE = path.join(__dirname, "links.json");
+
+let users = {};
+let sockets = {};
+let messages = {};
+let links = [];
+
+if (fs.existsSync(USERS_FILE)) users = fs.readJsonSync(USERS_FILE);
+if (fs.existsSync(MESSAGES_FILE)) messages = fs.readJsonSync(MESSAGES_FILE);
+if (fs.existsSync(LINKS_FILE)) links = fs.readJsonSync(LINKS_FILE);
+
+function saveUsers() {
+    fs.writeJsonSync(USERS_FILE, users, {
+        spaces: 2
+    });
 }
 
-const human = loadImage('Sprites/Human.png');
-const zombie = loadImage('Sprites/Zombie.png');
-const box = loadImage('Sprites/Box.png');
-const grass = loadImage('Sprites/Grass.png');
-const grass2 = loadImage('Sprites/Grass2.png'); // NOVO: Carrega a imagem da Grass2
-const street = loadImage('Sprites/Street.png');
-const sand = loadImage('Sprites/Sand.png');
-const sea = loadImage('Sprites/Sea.png');
-const sunshade = loadImage('Sprites/Sunshade.png');
-const sunshadeII = loadImage('Sprites/SunshadeII.png');
-const ductSprite = loadImage('Sprites/Duct.png');
-const atmSprite = loadImage('Sprites/ATM.png');
-const cardSprite = loadImage('Sprites/Card.png');
-const floors = loadImage('Sprites/Floor.png');
-const floor2 = loadImage('Sprites/Floor2.png'); // NOVO: Carrega a imagem do novo chão
-const garageFloor = loadImage('Sprites/garageFloor.png');
-const smallBed = loadImage('Sprites/smallBed.png');
-const bigTable = loadImage('Sprites/bigTable.png');
-const car = loadImage('Sprites/Car.png');
-const skateboardSprite = loadImage('Sprites/Skateboard.png');
-const droneSprite = loadImage('Sprites/Drone.png');
-const grenadeSprite = loadImage('Sprites/Grenade.png');
-const invisibilityCloakSprite = loadImage('Sprites/InvisibilityCloak.png');
-const antidoteSprite = loadImage('Sprites/Antidote.png');
-const magicAntidoteSprite = loadImage('Sprites/MagicAntidote.png');
-const magicEggSprite = loadImage('Sprites/MagicEgg.png'); // NOVO: Carrega a imagem do Magic Egg
-const trapSprite = loadImage('Sprites/Trap.png');
-const mineSprite = loadImage('Sprites/Mine.png');
-const gravityGloveSprite = loadImage('Sprites/GravityGlove.png');
-const GloveSprite = loadImage('Sprites/Glove.png');
-const cannonSprite = loadImage('Sprites/Cannon.png');
-const largeBallSprite = loadImage('Sprites/LargeBall.png');
-const portalsSprite = loadImage('Sprites/Portals.png');
-const inventoryUpgradeSprite = loadImage('Sprites/Slot.png');
-const runningTennisSprite = loadImage('Sprites/runningTennis.png');
-const bowSprite = loadImage('Sprites/Bow.png');
-const arrowSprite = loadImage('Sprites/Arrow.png');
-const blowdartSprite = loadImage('Sprites/Blowdart.png'); // NOVO: Sprite do Blowdart
-const blowdartArrowSprite = loadImage('Sprites/BlowdartArrow.png'); // NOVO: Sprite da flecha do Blowdart
-const sharkSprite = loadImage('Sprites/Shark.png');
-const gemSprite = loadImage('Sprites/Gem.png');
-const angelWingsSprite = loadImage('Sprites/AngelWings.png');
-const wallSprite = loadImage('Sprites/BrickWall.png');
-const wallSprite2 = loadImage('Sprites/BrickWall2.png');
-const fishingRodSprite = loadImage('Sprites/FishingRod.png');
-const bigBed = loadImage('Sprites/BigBed.png');
-const bigBed2 = loadImage('Sprites/BigBed2.png');
-const miniSofa = loadImage('Sprites/MiniSofa.png');
-const miniSofa2 = loadImage('Sprites/MiniSofa2.png');
-const sofa = loadImage('Sprites/Sofa.png');
-const squareTable = loadImage('Sprites/SquareTable.png');
-const parkBenchSprite = loadImage('Sprites/ParkBench.png');
-const poolTableSprite = loadImage('Sprites/PoolTable.png');
-const hidingSpotSprite = loadImage('Sprites/HidingSpot.png');
+function saveMessages() {
+    fs.writeJsonSync(MESSAGES_FILE, messages, {
+        spaces: 2
+    });
+}
 
-const itemSprites = {
-    skateboard: skateboardSprite,
-    drone: droneSprite,
-    invisibilityCloak: invisibilityCloakSprite,
-    card: cardSprite,
-    antidote: antidoteSprite,
-    magicAntidote: magicAntidoteSprite,
-    magicEgg: magicEggSprite, // NOVO: Adiciona o sprite do Magic Egg
-    normalGlove: GloveSprite,
-    gravityGlove: gravityGloveSprite,
-    grenade: grenadeSprite,
-    cannon: cannonSprite,
-    portals: portalsSprite,
-    inventoryUpgrade: inventoryUpgradeSprite,
-    runningTennis: runningTennisSprite,
-    bow: bowSprite,
-    blowdart: blowdartSprite, // NOVO: Adiciona o sprite do Blowdart
-    angelWings: angelWingsSprite,
-    fishingRod: fishingRodSprite
-};
+function saveLinks() {
+    fs.writeJsonSync(LINKS_FILE, links, {
+        spaces: 2
+    });
+}
 
+function generateID() {
+    return "ID" + Math.floor(Math.random() * 1000000);
+}
 const objectSprites = {
     small_bed: smallBed,
     big_table: bigTable,

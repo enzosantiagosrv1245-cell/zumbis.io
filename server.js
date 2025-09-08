@@ -14,6 +14,14 @@ const PORT = process.env.PORT || 3000;
 app.use(express.static(__dirname));
 app.use(express.json());
 
+// socket.io e outras coisas aqui...
+
+server.listen(PORT, () => {
+    console.log(`🚀 Servidor rodando na porta ${PORT}`);
+});
+
+// resto do seu código do game aqui...
+
 // conexões socket
 io.on('connection', (socket) => {
     console.log(`🟢 Jogador conectado: ${socket.id}`);
@@ -2698,8 +2706,3 @@ function startNewRound() {
         gameState.runningTennis.y = spawnY;
     }
 }
-
-server.listen(PORT, () => {
-    initializeGame();
-    console.log(`🚀 Game server running at http://localhost:${PORT}`);
-});
