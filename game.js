@@ -1,6 +1,23 @@
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-// const socket = io(); // Assuming socket is initialized in HTML
+
+const socket = io(); // conecta com o servidor
+
+// Recebe mensagens do servidor
+socket.on('chatMessage', (msg) => {
+    console.log("[Servidor]", msg);
+    // Aqui você pode exibir a mensagem no chat do jogo
+});
+
+// Recebe comando de teleporte
+socket.on('teleportPlayer', ({ x, y }) => {
+    if (player) {
+        player.x = x;
+        player.y = y;
+        console.log(`🔁 Teleportado para X: ${x}, Y: ${y}`);
+    }
+});
+
 
 (function setup() {
     const chatInput = document.getElementById('chatInput');
@@ -1007,7 +1024,7 @@ function draw() {
 
                 ctx.strokeStyle = 'black';
                 ctx.lineWidth = 5;
-                
+
 mp.events.add('chatMessage', (player, message) => {
     if (message.startsWith('/tp')) {
         const args = message.split(' ');

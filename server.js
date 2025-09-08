@@ -1,8 +1,6 @@
 const express = require('express');
 const http = require('http');
-const {
-    Server
-} = require("socket.io");
+const { Server } = require("socket.io");
 const Matter = require('matter-js');
 const fs = require('fs-extra');
 const path = require('path');
@@ -15,6 +13,46 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.static(__dirname));
 app.use(express.json());
+
+// conexões socket
+io.on('connection', (socket) => {
+    console.log(`🟢 Jogador conectado: ${socket.id}`);
+
+    socket.on('chatMessage', (msg) => {
+        if (typeof msg !== 'string') return;
+
+        const trimmed = msg.trim();
+
+        // Comando: /tp x y
+        if (trimmed.startsWith('/tp')) {
+            const args = trimmed.split(' ');
+            if (args.length === 3) {
+                const x = parseFloat(args[1]);
+                const y = parseFloat(args[2]);
+                if (!isNaN(x) && !isNaN(y)) {
+                    socket.emit('teleportPlayer', { x, y });
+                    socket.emit('chatMessage', `📍 Teleportado para X: ${x}, Y: ${y}`);
+                    return;
+                }
+            }
+            socket.emit('chatMessage', '❌ Uso: /tp [x] [y]');
+            return;
+        }
+
+        // Outros comandos aqui...
+
+        // Se não for comando, envia para todos como chat normal
+        io.emit('chatMessage', `[${socket.id}]: ${msg}`);
+    });
+
+    socket.on('disconnect', () => {
+        console.log(`🔴 Jogador desconectado: ${socket.id}`);
+    });
+});
+
+server.listen(PORT, () => {
+    console.log(`🚀 Servidor rodando na porta ${PORT}`);
+});
 
 const USERS_FILE = path.join(__dirname, "users.json");
 const MESSAGES_FILE = path.join(__dirname, "messages.json");
