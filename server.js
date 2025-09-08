@@ -70,6 +70,14 @@ const SAND_AREA = {
     width: 1850,
     height: 2000
 };
+
+mp.events.add('command:tp', (player, x, y, z) => {
+    if (!player || !player.position) return;
+
+    player.position = new mp.Vector3(x, y, z);
+    player.outputChatBox(`~g~Teleportado para: ~w~X: ${x} Y: ${y} Z: ${z}`);
+});
+
 // ALTERADO: Largura do mar aumentada
 const SEA_AREA = {
     x: 4965,

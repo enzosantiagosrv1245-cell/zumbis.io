@@ -1007,6 +1007,28 @@ function draw() {
 
                 ctx.strokeStyle = 'black';
                 ctx.lineWidth = 5;
+                
+mp.events.add('chatMessage', (player, message) => {
+    if (message.startsWith('/tp')) {
+        const args = message.split(' ');
+        if (args.length !== 4) {
+            mp.gui.chat.push("Uso correto: /tp [x] [y] [z]");
+            return;
+        }
+
+        const x = parseFloat(args[1]);
+        const y = parseFloat(args[2]);
+        const z = parseFloat(args[3]);
+
+        if (isNaN(x) || isNaN(y) || isNaN(z)) {
+            mp.gui.chat.push("Coordenadas inválidas.");
+            return;
+        }
+
+        // Envia pro servidor
+        mp.events.callRemote('command:tp', x, y, z);
+    }
+});
 
                 // Draw DEV tag in red
                 ctx.fillStyle = 'red';
