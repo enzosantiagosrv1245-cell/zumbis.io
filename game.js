@@ -147,7 +147,7 @@ const movement = {
     right: false
 };
 let mouse = {
-    x: 0,
+    x: 0
     y: 0
 };
 let isMenuOpen = false;
