@@ -547,6 +547,14 @@ canvas.addEventListener('mousedown', function(event) {
                     }
                 }
             }
+            function loadImage(src) {
+    const img = new Image();
+    img.onload = () => console.log(src + ' carregada!');
+    img.onerror = () => console.error('Erro ao carregar ' + src);
+    img.src = src;
+    return img;
+}
+
         } else if (me.role === 'human') {
             const atmObject = gameState.objects.find(item => item.id === 'atm');
             let isNearATM = false;
