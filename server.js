@@ -1,6 +1,8 @@
 const express = require('express');
 const http = require('http');
-const { Server } = require("socket.io");
+const {
+    Server
+} = require("socket.io");
 const Matter = require('matter-js');
 const fs = require('fs-extra');
 const path = require('path');
@@ -13,50 +15,6 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.static(__dirname));
 app.use(express.json());
-
-// socket.io e outras coisas aqui...
-
-server.listen(PORT, () => {
-    console.log(`🚀 Servidor rodando na porta ${PORT}`);
-});
-
-// resto do seu código do game aqui...
-
-// conexões socket
-io.on('connection', (socket) => {
-    console.log(`🟢 Jogador conectado: ${socket.id}`);
-
-    socket.on('chatMessage', (msg) => {
-        if (typeof msg !== 'string') return;
-
-        const trimmed = msg.trim();
-
-        // Comando: /tp x y
-        if (trimmed.startsWith('/tp')) {
-            const args = trimmed.split(' ');
-            if (args.length === 3) {
-                const x = parseFloat(args[1]);
-                const y = parseFloat(args[2]);
-                if (!isNaN(x) && !isNaN(y)) {
-                    socket.emit('teleportPlayer', { x, y });
-                    socket.emit('chatMessage', `📍 Teleportado para X: ${x}, Y: ${y}`);
-                    return;
-                }
-            }
-            socket.emit('chatMessage', '❌ Uso: /tp [x] [y]');
-            return;
-        }
-
-        // Outros comandos aqui...
-
-        // Se não for comando, envia para todos como chat normal
-        io.emit('chatMessage', `[${socket.id}]: ${msg}`);
-    });
-
-    socket.on('disconnect', () => {
-        console.log(`🔴 Jogador desconectado: ${socket.id}`);
-    });
-});
 
 const USERS_FILE = path.join(__dirname, "users.json");
 const MESSAGES_FILE = path.join(__dirname, "messages.json");
@@ -112,8 +70,6 @@ const SAND_AREA = {
     width: 1850,
     height: 2000
 };
-
-
 // ALTERADO: Largura do mar aumentada
 const SEA_AREA = {
     x: 4965,
@@ -2706,3 +2662,8 @@ function startNewRound() {
         gameState.runningTennis.y = spawnY;
     }
 }
+
+server.listen(PORT, () => {
+    initializeGame();
+    console.log(`🚀 Game server running at http://localhost:${PORT}`);
+});
