@@ -164,6 +164,8 @@ socket.on('connect', () => {
     // The login screen from your HTML should handle user identification now.
 });
 
+
+// Atualiza o estado do jogo conforme o servidor envia
 socket.on('gameStateUpdate', (serverState) => {
     if (myId && gameState.players[myId] && serverState.players[myId]) {
         const meBefore = gameState.players[myId];
@@ -175,6 +177,7 @@ socket.on('gameStateUpdate', (serverState) => {
     gameState = serverState;
 });
 
+// Recebe mensagens novas do chat
 socket.on('newMessage', (message) => {
     chatMessages.push(message);
     if (chatMessages.length > MAX_MESSAGES) {
@@ -182,22 +185,34 @@ socket.on('newMessage', (message) => {
     }
 });
 
+// Listener do teclado para chat e comandos
 window.addEventListener('keydown', function(event) {
     const key = event.key.toLowerCase();
     const me = gameState.players[myId];
 
     if (key === 'enter') {
         event.preventDefault();
+
         if (isChatting) {
             const messageText = chatInput.value.trim();
+
             if (messageText) {
-                socket.emit('sendMessage', messageText);
+                if (messageText.startsWith('/')) {
+                    processCommand(messageText);
+                } else {
+                    socket.emit('sendMessage', messageText);
+                }
             }
+
             chatInput.value = '';
             chatInput.blur();
+            isChatting = false;
+            chatInput.style.display = 'none';
+
         } else {
             chatInput.style.display = 'block';
             chatInput.focus();
+            isChatting = true;
         }
     }
 
@@ -205,6 +220,8 @@ window.addEventListener('keydown', function(event) {
         if (isChatting) {
             chatInput.value = '';
             chatInput.blur();
+            isChatting = false;
+            chatInput.style.display = 'none';
         }
     }
 
@@ -212,6 +229,58 @@ window.addEventListener('keydown', function(event) {
         return;
     }
 
+    // Aqui podem ficar outros controles do jogo, se quiser
+});
+
+// Função para processar comandos digitados via chat
+function processCommand(text) {
+    const args = text.slice(1).split(' ');
+    const cmd = args.shift().toLowerCase();
+    const me = gameState.players[myId];
+
+    switch (cmd) {
+        case 'tp':
+            if (args.length >= 2) {
+                const x = parseFloat(args[0]);
+                const y = parseFloat(args[1]);
+                if (!isNaN(x) && !isNaN(y) && me) {
+                    me.x = x;
+                    me.y = y;
+                    socket.emit('move', { x, y });
+                }
+            }
+            break;
+
+        case 'color':
+            if (args[0] && /^#[0-9A-Fa-f]{6}$/.test(args[0]) && me) {
+                me.color = args[0];
+                socket.emit('changeColor', args[0]);
+            }
+            break;
+
+        case 'pos':
+            if (me) {
+                console.log(`Posição atual: x=${me.x}, y=${me.y}`);
+            }
+            break;
+
+        case 'spawn':
+            if (me) {
+                me.x = 0;
+                me.y = 0;
+                socket.emit('move', { x: 0, y: 0 });
+            }
+            break;
+
+        // Adicione mais comandos aqui se quiser
+
+        default:
+            break;
+    }
+}
+
+    const key = event.key .toLowerCase();
+    const me = gameState.players[myId];
     if (key === 'b') {
         if (me) { // 'me' é a variável do seu jogador
             isMenuOpen = !isMenuOpen;
@@ -254,7 +323,7 @@ window.addEventListener('keydown', function(event) {
     if (isMenuOpen || isInstructionsOpen) {
         return;
     }
-    
+
 let localPlayer = {
     x: 100,
     y: 100,
@@ -365,7 +434,7 @@ let godMode = false;
             }
             break;
     }
-});
+
 
 window.addEventListener('keyup', function(event) {
     const key = event.key.toLowerCase();

@@ -414,6 +414,68 @@ function addGems(player, amount) {
         return;
     }
 
+// Guarda o estado dos jogadores
+let gameState = {
+    players: {}
+};
+
+// Função para atualizar todos os jogadores com o estado atual do jogo
+function broadcastGameState() {
+    io.emit('gameStateUpdate', gameState);
+}
+
+io.on('connection', (socket) => {
+    console.log(`Jogador conectado: ${socket.id}`);
+
+    // Cria um novo jogador com propriedades iniciais
+    gameState.players[socket.id] = {
+        id: socket.id,
+        x: 0,
+        y: 0,
+        color: '#ff0000',
+        role: 'human', // ou 'zombie' dependendo da lógica
+        butterflyUsed: false,
+        name: '',
+        gems: 0,
+    };
+
+    // Atualiza todos os jogadores com o novo estado
+    broadcastGameState();
+
+    // Recebe movimento/teleporte do cliente
+    socket.on('move', ({ x, y }) => {
+        const player = gameState.players[socket.id];
+        if (player) {
+            player.x = x;
+            player.y = y;
+            broadcastGameState();
+        }
+    });
+
+    // Recebe mudança de cor
+    socket.on('changeColor', (newColor) => {
+        const player = gameState.players[socket.id];
+        if (player) {
+            player.color = newColor;
+            broadcastGameState();
+        }
+    });
+
+    // Recebe mensagem do chat (simples retransmissão)
+    socket.on('sendMessage', (message) => {
+        io.emit('newMessage', { playerId: socket.id, text: message });
+    });
+
+    // Aqui você pode adicionar lógica de comandos especiais (exemplo simples)
+
+    // Desconexão do jogador
+    socket.on('disconnect', () => {
+        console.log(`Jogador desconectado: ${socket.id}`);
+        delete gameState.players[socket.id];
+        broadcastGameState();
+    });
+});
+
     if (player.role === 'human') {
         const oldGems = player.gems;
         player.gems += amount;
