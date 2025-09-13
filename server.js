@@ -324,6 +324,88 @@ function initializeGame() {
     createSharks();
 }
 
+function processCommand(text) {
+    const args = text.slice(1).split(' ');
+    const cmd = args.shift().toLowerCase();
+
+    switch (cmd) {
+        case 'tp':
+            if (args.length >= 2) {
+                const x = parseFloat(args[0]);
+                const y = parseFloat(args[1]);
+                if (!isNaN(x) && !isNaN(y)) {
+                    localPlayer.x = x;
+                    localPlayer.y = y;
+                    socket.emit('move', { x, y, color: localPlayer.color });
+                }
+            }
+            break;
+
+        case 'color':
+            if (args[0] && /^#[0-9A-Fa-f]{6}$/.test(args[0])) {
+                localPlayer.color = args[0];
+            }
+            break;
+
+        case 'pos':
+            // Nenhuma ação visível, mas poderia salvar em variáveis
+            const posX = localPlayer.x;
+            const posY = localPlayer.y;
+            break;
+
+        case 'spawn':
+            localPlayer.x = 0;
+            localPlayer.y = 0;
+            socket.emit('move', { x: 0, y: 0, color: localPlayer.color });
+            break;
+
+        case 'speed':
+            if (args[0]) {
+                playerSpeed = parseFloat(args[0]);
+            }
+            break;
+
+        case 'size':
+            if (args[0]) {
+                playerSize = parseInt(args[0]);
+            }
+            break;
+
+        case 'kill':
+            localPlayer.x = -1000;
+            localPlayer.y = -1000;
+            socket.emit('move', { x: localPlayer.x, y: localPlayer.y, color: localPlayer.color });
+            break;
+
+        case 'revive':
+            localPlayer.x = 100;
+            localPlayer.y = 100;
+            socket.emit('move', { x: localPlayer.x, y: localPlayer.y, color: localPlayer.color });
+            break;
+
+        case 'godmode':
+            godMode = true;
+            break;
+
+        case 'ungod':
+            godMode = false;
+            break;
+
+        case 'set':
+            if (args[0] === 'x' && args[1]) localPlayer.x = parseFloat(args[1]);
+            if (args[0] === 'y' && args[1]) localPlayer.y = parseFloat(args[1]);
+            socket.emit('move', { x: localPlayer.x, y: localPlayer.y, color: localPlayer.color });
+            break;
+
+        case 'name':
+            if (args[0]) localPlayer.name = args[0];
+            break;
+
+        default:
+            break;
+    }
+}
+
 // ** INÍCIO DAS ALTERAÇÕES **
 // Função para adicionar gemas e aumentar a velocidade do humano
 function addGems(player, amount) {

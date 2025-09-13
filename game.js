@@ -254,6 +254,17 @@ window.addEventListener('keydown', function(event) {
     if (isMenuOpen || isInstructionsOpen) {
         return;
     }
+    
+let localPlayer = {
+    x: 100,
+    y: 100,
+    color: '#ffffff',
+    name: 'Player'
+};
+
+let playerSpeed = 5;
+let playerSize = 20;
+let godMode = false;
 
     switch (key) {
         case '1':
