@@ -155,7 +155,7 @@
                 localStorage.setItem('playerName', 'Mingau');
                 localStorage.setItem('isDevAccount', 'true');
                 localStorage.setItem('devCode', code);
-                window.location.href = 'game.html';
+                window.location.href = '/game';
             } else if (code.trim() !== '') {
                 showError('Código incorreto!');
                 document.getElementById('devCode').value = '';
