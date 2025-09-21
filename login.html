@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Game Login</title>
+    <style>
+        body {
+            background: #000;
+            color: #fff;
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .login-container {
+            background: rgba(30, 30, 30, 0.9);
+            padding: 30px;
+            border-radius: 10px;
+            border: 2px solid #555;
+            text-align: center;
+            width: 300px;
+        }
+        input {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid #555;
+            background: #222;
+            color: #fff;
+            border-radius: 5px;
+        }
+        button {
+            width: 100%;
+            padding: 12px;
+            background: #007acc;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background: #005a9e;
+        }
+        .secret-code {
+            margin-top: 20px;
+            font-size: 12px;
+            color: #888;
+        }
+        .error {
+            color: #ff6b6b;
+            margin: 10px 0;
+        }
+        .dev-login {
+            margin-top: 15px;
+            border-top: 1px solid #555;
+            padding-top: 15px;
+        }
+        .dev-input {
+            background: #1a1a1a;
+            border: 1px solid #333;
+        }
+        .dev-button {
+            background: #ff4444;
+        }
+        .dev-button:hover {
+            background: #cc3333;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <h1>Game Login</h1>
+        
+        <!-- Login normal -->
+        <input type="text" id="playerName" placeholder="Digite seu nome" maxlength="20">
+        <button onclick="joinGame()">Entrar no Jogo</button>
+        
+        <!-- Login dev -->
+        <div class="dev-login">
+            <input type="password" id="devCode" placeholder="Código Secreto" class="dev-input">
+            <button onclick="devLogin()" class="dev-button">Dev Login</button>
+        </div>
+        
+        <div id="error" class="error"></div>
+        
+        <div class="secret-code">
+            Para desenvolvedores: Use o código especial
+        </div>
+    </div>
+
+    <script>
+        // Bloquear F12 para não-devs
+        let isDevAccount = false;
+        
+        document.addEventListener('keydown', function(e) {
+            if (!isDevAccount) {
+                // Bloquear F12, Ctrl+Shift+I, Ctrl+U, Ctrl+Shift+C
+                if (e.key === 'F12' || 
+                    (e.ctrlKey && e.shiftKey && e.key === 'I') ||
+                    (e.ctrlKey && e.key === 'u') ||
+                    (e.ctrlKey && e.shiftKey && e.key === 'C')) {
+                    e.preventDefault();
+                    return false;
+                }
+            }
+        });
+        
+        // Bloquear menu de contexto para não-devs
+        document.addEventListener('contextmenu', function(e) {
+            if (!isDevAccount) {
+                e.preventDefault();
+            }
+        });
+
+        function showError(message) {
+            document.getElementById('error').textContent = message;
+            setTimeout(() => {
+                document.getElementById('error').textContent = '';
+            }, 3000);
+        }
+
+        function joinGame() {
+            const name = document.getElementById('playerName').value.trim();
+            
+            if (!name) {
+                showError('Por favor, digite um nome!');
+                return;
+            }
+            
+            if (name.length < 2) {
+                showError('Nome deve ter pelo menos 2 caracteres!');
+                return;
+            }
+            
+            // Verificar se não é nome reservado
+            if (name.toLowerCase() === 'mingau') {
+                showError('Nome reservado! Use o código especial.');
+                return;
+            }
+            
+            localStorage.setItem('playerName', name);
+            localStorage.setItem('isDevAccount', 'false');
+            window.location.href = 'game.html';
+        }
+
+        function devLogin() {
+            const code = document.getElementById('devCode').value;
+            
+            if (code === 'Mingau_dev#2011') {
+                isDevAccount = true;
+                localStorage.setItem('playerName', 'Mingau');
+                localStorage.setItem('isDevAccount', 'true');
+                localStorage.setItem('devCode', code);
+                window.location.href = 'game.html';
+            } else if (code.trim() !== '') {
+                showError('Código incorreto!');
+                document.getElementById('devCode').value = '';
+            }
+        }
+
+        // Permitir Enter para login
+        document.getElementById('playerName').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') joinGame();
+        });
+        
+        document.getElementById('devCode').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') devLogin();
+        });
+    </script>
+</body>
+</html>

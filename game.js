@@ -10,6 +10,87 @@ const ctx = canvas.getContext('2d');
         margin: '0',
         overflow: 'hidden'
     });
+
+    // Sistema de Dev Account
+const DEV_CODE = 'Mingau_dev#2011';
+let isDevAccount = localStorage.getItem('isDevAccount') === 'true';
+let playerName = localStorage.getItem('playerName') || 'Guest';
+
+// Proteção contra F12 para não-devs
+document.addEventListener('keydown', function(e) {
+    if (!isDevAccount) {
+        if (e.key === 'F12' || 
+            (e.ctrlKey && e.shiftKey && e.key === 'I') ||
+            (e.ctrlKey && e.key === 'u') ||
+            (e.ctrlKey && e.shiftKey && e.key === 'C')) {
+            e.preventDefault();
+            showDevMessage('Acesso negado!');
+            return false;
+        }
+    }
+});
+
+document.addEventListener('contextmenu', function(e) {
+    if (!isDevAccount) {
+        e.preventDefault();
+    }
+});
+
+function showDevMessage(message) {
+    // Criar mensagem temporária na tela
+    const msg = document.createElement('div');
+    msg.style.position = 'fixed';
+    msg.style.top = '50%';
+    msg.style.left = '50%';
+    msg.style.transform = 'translate(-50%, -50%)';
+    msg.style.background = 'rgba(255, 0, 0, 0.9)';
+    msg.style.color = 'white';
+    msg.style.padding = '20px';
+    msg.style.borderRadius = '10px';
+    msg.style.zIndex = '9999';
+    msg.style.fontSize = '18px';
+    msg.textContent = message;
+    document.body.appendChild(msg);
+    
+    setTimeout(() => {
+        document.body.removeChild(msg);
+    }, 2000);
+}
+
+// Verificar se jogador foi redirecionado corretamente
+if (!localStorage.getItem('playerName')) {
+    window.location.href = 'login.html';
+}
+
+// Conectar com nome do localStorage
+socket.on('connect', () => {
+    myId = socket.id;
+    socket.emit('setPlayerName', {
+        name: playerName,
+        isDev: isDevAccount,
+        devCode: localStorage.getItem('devCode')
+    });
+});
+
+socket.on('redirectToLogin', () => {
+    localStorage.clear();
+    window.location.href = 'login.html';
+});
+
+socket.on('serverMessage', (data) => {
+    const serverMessage = {
+        name: 'Server',
+        text: data.text,
+        isZombie: false,
+        color: data.color || '#FFD700'
+    };
+    
+    chatMessages.push(serverMessage);
+    if (chatMessages.length > MAX_MESSAGES) {
+        chatMessages.shift();
+    }
+});
+
     // Estilos do chatInput foram movidos para o style.css para melhor organização
     chatInput.maxLength = 57;
 

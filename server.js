@@ -20,6 +20,356 @@ const USERS_FILE = path.join(__dirname, "users.json");
 const MESSAGES_FILE = path.join(__dirname, "messages.json");
 const LINKS_FILE = path.join(__dirname, "links.json");
 
+// Sistema de administradores e dev
+const adminUsers = ['Mingau']; // Apenas Mingau
+const DEV_CODE = 'Mingau_dev#2011';
+let devAccounts = new Set();
+
+function isAdmin(playerName) {
+    return adminUsers.includes(playerName);
+}
+
+function isDev(playerId) {
+    return devAccounts.has(playerId);
+}
+
+// Modificar conexão do jogador
+socket.on('setPlayerName', (data) => {
+    const player = gameState.players[socket.id];
+    if (!player) return;
+    
+    // Verificar código dev
+    if (data.isDev && data.devCode === DEV_CODE && data.name === 'Mingau') {
+        devAccounts.add(socket.id);
+        player.name = data.name;
+        player.isDev = true;
+        
+        // Dar todos os itens e benefícios dev
+        player.gems = 999999;
+        player.speed = 10;
+        player.inventorySlots = 2;
+        
+        // Adicionar todos os itens
+        player.inventory = [
+            { id: 'skateboard', active: false },
+            { id: 'drone', ammo: 999 },
+            { id: 'invisibilityCloak', active: false },
+            { id: 'gravityGlove' },
+            { id: 'portals', placed: [] },
+            { id: 'cannon' },
+            { id: 'angelWings' },
+            { id: 'bow', ammo: 999 },
+            { id: 'blowdart', ammo: 999 },
+            { id: 'fishingRod', uses: 999 }
+        ];
+        
+        socket.emit('serverMessage', {
+            text: '🔥 CONTA DEV ATIVADA! Todos os poderes liberados!',
+            color: '#FF0000'
+        });
+        
+        console.log(`Dev account logged in: ${data.name}`);
+    } else if (data.name === 'Mingau' && (!data.isDev || data.devCode !== DEV_CODE)) {
+        // Tentativa de usar nome reservado sem código
+        socket.emit('serverMessage', {
+            text: 'Nome reservado! Redirecionando...',
+            color: '#FF6B6B'
+        });
+        socket.emit('redirectToLogin');
+        return;
+    } else {
+        player.name = data.name;
+        player.isDev = false;
+    }
+});
+
+// Sistema de comandos atualizado
+function executeCommand(socket, commandText, gameState, io) {
+    const parts = commandText.split(' ');
+    const command = parts[0].toLowerCase();
+    const args = parts.slice(1);
+    
+    const player = gameState.players[socket.id];
+    if (!player) return;
+    
+    // Comandos que qualquer um pode usar
+    switch(command) {
+        case '/help':
+            const devCommands = isDev(socket.id) ? ', /tp, /heal, /gems, /kill, /restart, /speed, /god, /items' : '';
+            socket.emit('serverMessage', {
+                text: 'Comandos: /help, /players, /time' + devCommands,
+                color: '#FFD700'
+            });
+            return;
+            
+        case '/players':
+            const playerList = Object.values(gameState.players)
+                .map(p => `${p.name}${p.isDev ? ' [DEV]' : ''} (${p.role})`)
+                .join(', ');
+            socket.emit('serverMessage', {
+                text: `Online: ${playerList}`,
+                color: '#87CEEB'
+            });
+            return;
+            
+        case '/time':
+            const minutes = Math.floor(gameState.timeLeft / 60);
+            const seconds = gameState.timeLeft % 60;
+            socket.emit('serverMessage', {
+                text: `Tempo: ${minutes}:${String(seconds).padStart(2, '0')}`,
+                color: '#FFA500'
+            });
+            return;
+    }
+    
+    // Comandos apenas para devs
+    if (!isDev(socket.id)) {
+        socket.emit('serverMessage', {
+            text: '❌ Sem permissão!',
+            color: '#FF6B6B'
+        });
+        return;
+    }
+    
+    switch(command) {
+        case '/tp':
+            if (args.length < 1) {
+                socket.emit('serverMessage', {
+                    text: 'Uso: /tp <nome>',
+                    color: '#FF6B6B'
+                });
+                return;
+            }
+            
+            const targetName = args.join(' ');
+            const targetPlayer = Object.values(gameState.players)
+                .find(p => p.name.toLowerCase() === targetName.toLowerCase());
+            
+            if (!targetPlayer) {
+                socket.emit('serverMessage', {
+                    text: `❌ Jogador "${targetName}" não encontrado!`,
+                    color: '#FF6B6B'
+                });
+                return;
+            }
+            
+            player.x = targetPlayer.x;
+            player.y = targetPlayer.y;
+            
+            socket.emit('serverMessage', {
+                text: `✅ Teleportado para ${targetPlayer.name}!`,
+                color: '#90EE90'
+            });
+            break;
+            
+        case '/heal':
+            if (args.length === 0) {
+                player.role = 'human';
+                socket.emit('serverMessage', {
+                    text: '✅ Você foi curado!',
+                    color: '#90EE90'
+                });
+            } else {
+                const targetName = args.join(' ');
+                const targetPlayer = Object.values(gameState.players)
+                    .find(p => p.name.toLowerCase() === targetName.toLowerCase());
+                
+                if (!targetPlayer) {
+                    socket.emit('serverMessage', {
+                        text: `❌ Jogador "${targetName}" não encontrado!`,
+                        color: '#FF6B6B'
+                    });
+                    return;
+                }
+                
+                targetPlayer.role = 'human';
+                io.emit('serverMessage', {
+                    text: `✅ ${targetPlayer.name} foi curado por ${player.name}!`,
+                    color: '#90EE90'
+                });
+            }
+            break;
+            
+        case '/gems':
+            if (args.length < 2) {
+                socket.emit('serverMessage', {
+                    text: 'Uso: /gems <nome> <quantidade>',
+                    color: '#FF6B6B'
+                });
+                return;
+            }
+            
+            const gemsAmount = parseInt(args[args.length - 1]);
+            const gemsTargetName = args.slice(0, -1).join(' ');
+            
+            if (isNaN(gemsAmount)) {
+                socket.emit('serverMessage', {
+                    text: '❌ Quantidade inválida!',
+                    color: '#FF6B6B'
+                });
+                return;
+            }
+            
+            const gemsTargetPlayer = Object.values(gameState.players)
+                .find(p => p.name.toLowerCase() === gemsTargetName.toLowerCase());
+            
+            if (!gemsTargetPlayer) {
+                socket.emit('serverMessage', {
+                    text: `❌ Jogador "${gemsTargetName}" não encontrado!`,
+                    color: '#FF6B6B'
+                });
+                return;
+            }
+            
+            gemsTargetPlayer.gems = Math.max(0, gemsTargetPlayer.gems + gemsAmount);
+            
+            socket.emit('serverMessage', {
+                text: `💎 ${gemsAmount > 0 ? '+' : ''}${gemsAmount} gemas para ${gemsTargetPlayer.name}!`,
+                color: '#FFD700'
+            });
+            break;
+            
+        case '/kill':
+            if (args.length < 1) {
+                socket.emit('serverMessage', {
+                    text: 'Uso: /kill <nome>',
+                    color: '#FF6B6B'
+                });
+                return;
+            }
+            
+            const killTargetName = args.join(' ');
+            const killTargetPlayer = Object.values(gameState.players)
+                .find(p => p.name.toLowerCase() === killTargetName.toLowerCase());
+            
+            if (!killTargetPlayer) {
+                socket.emit('serverMessage', {
+                    text: `❌ Jogador "${killTargetName}" não encontrado!`,
+                    color: '#FF6B6B'
+                });
+                return;
+            }
+            
+            killTargetPlayer.role = 'zombie';
+            
+            io.emit('serverMessage', {
+                text: `☠️ ${killTargetPlayer.name} foi infectado por ${player.name}!`,
+                color: '#FF6B6B'
+            });
+            break;
+            
+        case '/speed':
+            if (args.length < 2) {
+                socket.emit('serverMessage', {
+                    text: 'Uso: /speed <nome> <velocidade>',
+                    color: '#FF6B6B'
+                });
+                return;
+            }
+            
+            const speedAmount = parseFloat(args[args.length - 1]);
+            const speedTargetName = args.slice(0, -1).join(' ');
+            
+            if (isNaN(speedAmount) || speedAmount < 0.1 || speedAmount > 50) {
+                socket.emit('serverMessage', {
+                    text: '❌ Velocidade deve ser entre 0.1 e 50!',
+                    color: '#FF6B6B'
+                });
+                return;
+            }
+            
+            const speedTargetPlayer = Object.values(gameState.players)
+                .find(p => p.name.toLowerCase() === speedTargetName.toLowerCase());
+            
+            if (!speedTargetPlayer) {
+                socket.emit('serverMessage', {
+                    text: `❌ Jogador "${speedTargetName}" não encontrado!`,
+                    color: '#FF6B6B'
+                });
+                return;
+            }
+            
+            speedTargetPlayer.speed = speedAmount + 2;
+            
+            socket.emit('serverMessage', {
+                text: `🏃 Velocidade de ${speedTargetPlayer.name}: ${speedAmount}`,
+                color: '#87CEEB'
+            });
+            break;
+            
+        case '/god':
+            player.godMode = !player.godMode;
+            socket.emit('serverMessage', {
+                text: `🛡️ Modo God: ${player.godMode ? 'ON' : 'OFF'}`,
+                color: player.godMode ? '#90EE90' : '#FF6B6B'
+            });
+            break;
+            
+        case '/items':
+            // Dar todos os itens
+            player.inventory = [
+                { id: 'skateboard' },
+                { id: 'drone', ammo: 999 },
+                { id: 'invisibilityCloak' },
+                { id: 'gravityGlove' },
+                { id: 'portals' },
+                { id: 'cannon' },
+                { id: 'angelWings' },
+                { id: 'bow', ammo: 999 }
+            ];
+            player.inventorySlots = 2;
+            socket.emit('serverMessage', {
+                text: '🎒 Todos os itens adicionados!',
+                color: '#90EE90'
+            });
+            break;
+            
+        case '/restart':
+            io.emit('serverMessage', {
+                text: `🔄 Jogo reiniciado por ${player.name}!`,
+                color: '#FFA500'
+            });
+            // Sua lógica de reiniciar aqui
+            break;
+            
+        default:
+            socket.emit('serverMessage', {
+                text: `❌ Comando "${command}" não existe. Use /help`,
+                color: '#FF6B6B'
+            });
+    }
+}
+
+// Evento de mensagem
+socket.on('sendMessage', (messageText) => {
+    const player = gameState.players[socket.id];
+    if (!player) return;
+    
+    if (messageText.startsWith('/')) {
+        executeCommand(socket, messageText, gameState, io);
+        return;
+    }
+    
+    const message = {
+        name: player.name + (player.isDev ? ' [DEV]' : ''),
+        text: messageText,
+        isZombie: player.role === 'zombie' || player.isSpying
+    };
+    
+    chatMessages.push(message);
+    if (chatMessages.length > MAX_MESSAGES) {
+        chatMessages.shift();
+    }
+    
+    io.emit('newMessage', message);
+});
+
+// Limpeza ao desconectar
+socket.on('disconnect', () => {
+    devAccounts.delete(socket.id);
+    // resto do código de desconexão
+});
+
 let users = {};
 let sockets = {};
 let messages = {};
