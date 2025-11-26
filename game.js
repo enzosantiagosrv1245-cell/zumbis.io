@@ -10,8 +10,7 @@ const ctx = canvas.getContext('2d');
         margin: '0',
         overflow: 'hidden'
     });
-
-    // Sistema de Dev Account
+//a
 const DEV_CODE = 'Mingau_dev#2011';
 let isDevAccount = localStorage.getItem('isDevAccount') === 'true';
 let playerName = localStorage.getItem('playerName') || 'Guest';
