@@ -810,6 +810,144 @@ io.on('connection', (socket) => {
 
     // Aqui você pode adicionar lógica de comandos especiais (exemplo simples)
 
+    // Autenticação e Registro
+    socket.on("register", ({
+        username,
+        password
+    }) => {
+        if (users[username]) return socket.emit("registerError", "Usuário já existe!");
+        const id = generateID();
+        users[username] = {
+            id,
+            username,
+            password,
+            color: "#3498db",
+            photo: null,
+            editedName: false,
+            friends: [],
+            requests: []
+        };
+        saveUsers();
+        socket.emit("registerSuccess", users[username]);
+    });
+
+    socket.on("login", ({
+        username,
+        password
+    }) => {
+        if (!users[username] || users[username].password !== password)
+            return socket.emit("loginError", "Usuário ou senha incorretos!");
+
+        socket.username = username;
+        sockets[username] = socket.id;
+        if (!messages[username]) messages[username] = {};
+        socket.emit("loginSuccess", users[username]);
+
+        const player = gameState.players[socket.id];
+        if (player) {
+            player.name = username;
+        }
+    });
+
+    socket.on("newLink", url => {
+        links.push(url);
+        saveLinks();
+        socket.broadcast.emit("broadcastLink", url);
+    });
+
+    socket.on("checkUserExists", (username, callback) => callback(!!users[username]));
+
+    socket.on("friendRequest", ({
+        from,
+        to,
+        photo
+    }) => {
+        const targetSocket = sockets[to];
+        if (targetSocket) {
+            io.to(targetSocket).emit("friendRequestNotification", {
+                from,
+                photo
+            });
+        } else {
+            if (users[to]) {
+                users[to].requests.push(from);
+                saveUsers();
+            }
+        }
+    });
+
+    socket.on("acceptRequest", ({
+        from,
+        to
+    }) => {
+        if (users[from] && users[to]) {
+            users[from].friends.push(to);
+            users[to].friends.push(from);
+            users[to].requests = users[to].requests.filter(r => r !== from);
+            saveUsers();
+        }
+        const targetSocket = sockets[from];
+        if (targetSocket) {
+            io.to(targetSocket).emit("friendAccepted", {
+                from: to
+            });
+        }
+    });
+
+    socket.on("rejectRequest", ({
+        from,
+        to
+    }) => {
+        if (users[to]) {
+            users[to].requests = users[to].requests.filter(r => r !== from);
+            saveUsers();
+        }
+    });
+
+    socket.on("dm", ({
+        to,
+        msg
+    }) => {
+        const targetSocket = sockets[to];
+        if (targetSocket) io.to(targetSocket).emit("dm", {
+            from: socket.username,
+            msg
+        });
+    });
+
+    socket.on("changeName", ({
+        oldName,
+        newName
+    }) => {
+        if (users[oldName] && !users[newName]) {
+            users[newName] = { ...users[oldName],
+                username: newName
+            };
+            delete users[oldName];
+            saveUsers();
+        }
+    });
+
+    socket.on("changePassword", ({
+        username,
+        newPass
+    }) => {
+        if (users[username]) {
+            users[username].password = newPass;
+            saveUsers();
+        }
+    });
+
+    socket.on("changeColor", ({
+        username,
+        color
+    }) => {
+        if (users[username]) {
+            users[username].color = color;
+            saveUsers();
+        }
+    });
+
     // Desconexão do jogador
     socket.on('disconnect', () => {
         console.log(`Jogador desconectado: ${socket.id}`);
