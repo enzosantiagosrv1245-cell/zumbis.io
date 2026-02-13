@@ -281,98 +281,6 @@ function executeCommand(socket, commandText, gameState, io) {
     }
 }
 
-// Evento de mensagem
-socket.on('sendMessage', (messageText) => {
-    const player = gameState.players[socket.id];
-    if (!player) return;
-    
-    if (messageText.startsWith('/')) {
-        executeCommand(socket, messageText, gameState, io);
-        return;
-    }
-    
-    const message = {
-        playerId: socket.id,
-        name: player.name + (player.isDev ? ' [DEV]' : ''),
-        text: messageText,
-        isZombie: player.role === 'zombie' || player.isSpying,
-        timestamp: Date.now()
-    };
-    
-    chatMessages.push(message);
-    if (chatMessages.length > MAX_MESSAGES) {
-        chatMessages.shift();
-    }
-    
-    io.emit('newMessage', message);
-});
-
-// Evento de comando DEV
-socket.on('devCommand', (data) => {
-    const player = gameState.players[socket.id];
-    if (!player || player.name !== 'Mingau') return;
-    
-    const cmd = data.cmd ? data.cmd.toLowerCase() : '';
-    const args = data.args || [];
-    
-    switch(cmd) {
-        case 'kill':
-            if (args[0] === 'everyone') {
-                Object.values(gameState.players).forEach(p => {
-                    if (p.id !== socket.id) p.role = 'zombie';
-                });
-            } else {
-                const targetName = CommandSystem.normalizeUsername(args.join(' '));
-                const target = CommandSystem.findPlayerByName(gameState.players, targetName);
-                if (target) target.role = 'zombie';
-            }
-            break;
-        case 'tp':
-            const tpTarget = CommandSystem.findPlayerByName(gameState.players, CommandSystem.normalizeUsername(args[0]));
-            if (tpTarget) {
-                player.x = tpTarget.x + 50;
-                player.y = tpTarget.y + 50;
-            }
-            break;
-        case 'heal':
-            if (!args[0]) {
-                player.role = 'human';
-            } else {
-                const healTarget = CommandSystem.findPlayerByName(gameState.players, CommandSystem.normalizeUsername(args[0]));
-                if (healTarget) healTarget.role = 'human';
-            }
-            break;
-        case 'speed':
-            const speedVal = parseFloat(args[0]);
-            if (!isNaN(speedVal)) player.speed = Math.min(speedVal, 20);
-            break;
-        case 'gems':
-            const gemsTarget = CommandSystem.findPlayerByName(gameState.players, CommandSystem.normalizeUsername(args[0]));
-            const gemsAmt = parseInt(args[1]);
-            if (gemsTarget && !isNaN(gemsAmt)) {
-                gemsTarget.gems = (gemsTarget.gems || 0) + gemsAmt;
-            }
-            break;
-        case 'givcmd':
-            const cmdTarget = CommandSystem.findPlayerByName(gameState.players, CommandSystem.normalizeUsername(args[0]));
-            if (cmdTarget && args[1]) {
-                cmdTarget.tempDevCommands = cmdTarget.tempDevCommands || [];
-                cmdTarget.tempDevCommands.push(args[1].toUpperCase());
-            }
-            break;
-        case 'restart':
-            gameState.timeLeft = 120;
-            gameState.gamePhase = 'playing';
-            break;
-    }
-});
-
-// Limpeza ao desconectar
-socket.on('disconnect', () => {
-    devAccounts.delete(socket.id);
-    // resto do código de desconexão
-});
-
 let users = {};
 let sockets = {};
 let messages = {};
@@ -815,8 +723,89 @@ io.on('connection', (socket) => {
     });
 
     // Recebe mensagem do chat (simples retransmissão)
-    socket.on('sendMessage', (message) => {
-        io.emit('newMessage', { playerId: socket.id, text: message });
+    socket.on('sendMessage', (messageText) => {
+        const player = gameState.players[socket.id];
+        if (!player) return;
+        
+        if (messageText.startsWith('/')) {
+            executeCommand(socket, messageText, gameState, io);
+            return;
+        }
+        
+        const message = {
+            playerId: socket.id,
+            name: player.name + (player.isDev ? ' [DEV]' : ''),
+            text: messageText,
+            isZombie: player.role === 'zombie' || player.isSpying,
+            timestamp: Date.now()
+        };
+        
+        chatMessages.push(message);
+        if (chatMessages.length > MAX_MESSAGES) {
+            chatMessages.shift();
+        }
+        
+        io.emit('newMessage', message);
+    });
+
+    // Evento de comando DEV
+    socket.on('devCommand', (data) => {
+        const player = gameState.players[socket.id];
+        if (!player || player.name !== 'Mingau') return;
+        
+        const cmd = data.cmd ? data.cmd.toLowerCase() : '';
+        const args = data.args || [];
+        
+        switch(cmd) {
+            case 'kill':
+                if (args[0] === 'everyone') {
+                    Object.values(gameState.players).forEach(p => {
+                        if (p.id !== socket.id) p.role = 'zombie';
+                    });
+                } else {
+                    const targetName = CommandSystem.normalizeUsername(args.join(' '));
+                    const target = CommandSystem.findPlayerByName(gameState.players, targetName);
+                    if (target) target.role = 'zombie';
+                }
+                break;
+            case 'tp':
+                const tpTarget = CommandSystem.findPlayerByName(gameState.players, CommandSystem.normalizeUsername(args[0]));
+                if (tpTarget) {
+                    player.x = tpTarget.x + 50;
+                    player.y = tpTarget.y + 50;
+                }
+                break;
+            case 'heal':
+                if (!args[0]) {
+                    player.role = 'human';
+                } else {
+                    const healTarget = CommandSystem.findPlayerByName(gameState.players, CommandSystem.normalizeUsername(args[0]));
+                    if (healTarget) healTarget.role = 'human';
+                }
+                break;
+            case 'speed':
+                const speedVal = parseFloat(args[0]);
+                if (!isNaN(speedVal)) player.speed = Math.min(speedVal, 20);
+                break;
+            case 'gems':
+                const gemsTarget = CommandSystem.findPlayerByName(gameState.players, CommandSystem.normalizeUsername(args[0]));
+                const gemsAmt = parseInt(args[1]);
+                if (gemsTarget && !isNaN(gemsAmt)) {
+                    gemsTarget.gems = (gemsTarget.gems || 0) + gemsAmt;
+                }
+                break;
+            case 'givcmd':
+                const cmdTarget = CommandSystem.findPlayerByName(gameState.players, CommandSystem.normalizeUsername(args[0]));
+                if (cmdTarget && args[1]) {
+                    cmdTarget.tempDevCommands = cmdTarget.tempDevCommands || [];
+                    cmdTarget.tempDevCommands.push(args[1].toUpperCase());
+                }
+                break;
+            case 'restart':
+                gameState.timeLeft = 120;
+                gameState.gamePhase = 'playing';
+                break;
+        }
     });
 
     // Aqui você pode adicionar lógica de comandos especiais (exemplo simples)
