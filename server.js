@@ -17,6 +17,15 @@ const PORT = process.env.PORT || 3000;
 app.use(express.static(__dirname));
 app.use(express.json());
 
+const USERS_FILE = path.join(__dirname, "users.json");
+const MESSAGES_FILE = path.join(__dirname, "messages.json");
+const LINKS_FILE = path.join(__dirname, "links.json");
+
+// Sistema de administradores e dev
+const adminUsers = ['Mingau']; // Apenas Mingau
+const DEV_CODE = 'Mingau_dev#2011';
+let devAccounts = new Set();
+
 function isAdmin(playerName) {
     return adminUsers.includes(playerName);
 }
@@ -24,6 +33,10 @@ function isAdmin(playerName) {
 function isDev(playerId) {
     return devAccounts.has(playerId);
 }
+
+// Variáveis globais para chat
+const chatMessages = [];
+const MAX_MESSAGES = 100;
 
 function executeCommand(socket, commandText, gameState, io) {
     const parts = commandText.split(' ');
@@ -668,18 +681,12 @@ function processCommand(text) {
 }
 
 // ** INÍCIO DAS ALTERAÇÕES **
-// Função para adicionar gemas e aumentar a velocidade do humano
+// Função para adicionar gemas
 function addGems(player, amount) {
-    if (!player || amount <= 0) {
-        if (player) player.gems += amount;
-        return;
-    }
-
-// Guarda o estado dos jogadores
-let gameState = {
-    players: {}
-};
-
+    if (!player) return;
+    if (typeof player.gems === 'undefined') player.gems = 0;
+    player.gems += amount;
+}
 // Função para atualizar todos os jogadores com o estado atual do jogo
 function broadcastGameState() {
     io.emit('gameStateUpdate', gameState);
@@ -955,26 +962,6 @@ io.on('connection', (socket) => {
         broadcastGameState();
     });
 });
-
-    if (player.role === 'human') {
-        const oldGems = player.gems;
-        player.gems += amount;
-        const newGems = player.gems;
-
-        const milestonesPassed = Math.floor(newGems / 100) - Math.floor(oldGems / 100);
-        if (milestonesPassed > 0) {
-            let speedIncrease = 0;
-            for (let i = 0; i < milestonesPassed; i++) {
-                speedIncrease += Math.random() * (0.02 - 0.01) + 0.01;
-            }
-            player.speed += speedIncrease;
-            player.originalSpeed += speedIncrease; // Aplica o bônus na velocidade base também
-        }
-    } else {
-        // Se não for humano (ex: zumbi pegando gemas de humano infectado), apenas adiciona
-        player.gems += amount;
-    }
-}
 
 // Função para remover gemas e diminuir a velocidade do zumbi
 function removeGems(player, amount) {
