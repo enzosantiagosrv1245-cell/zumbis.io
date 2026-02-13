@@ -7,7 +7,6 @@ const Matter = require('matter-js');
 const fs = require('fs-extra');
 const path = require('path');
 const CommandSystem = require('./commands');
-app.use(express.json());
 
 const USERS_FILE = path.join(__dirname, "users.json");
 const MESSAGES_FILE = path.join(__dirname, "messages.json");
@@ -26,44 +25,6 @@ function isDev(playerId) {
     return devAccounts.has(playerId);
 }
 
-// Modificar conexão do jogador
-socket.on('setPlayerName', (data) => {
-    const player = gameState.players[socket.id];
-    if (!player) return;
-    
-    // Verificar código dev
-    if (data.isDev && data.devCode === DEV_CODE && data.name === 'Mingau') {
-        devAccounts.add(socket.id);
-        player.name = data.name;
-        player.isDev = true;
-        
-        // Dar todos os itens e benefícios dev
-    const normalizedName = CommandSystem.normalizeUsername(data.name);
-    
-    // Bloquear criação de conta com nome "Mingau"
-    if (normalizedName === 'mingau') {
-        socket.emit('serverMessage', {
-            text: 'Este nome está reservado!',
-            color: '#FF6B6B'
-        });
-        socket.emit('redirectToLogin');
-        return;
-    }
-    
-    // Verificar se é a conta DEV existente no users.json
-    const users = fs.readJsonSync(USERS_FILE);
-    if (users.Mingau && data.name === 'Mingau' && data.password === users.Mingau.password) {
-        devAccounts.add(socket.id);
-        player.name = 'Mingau';
-        player.isDev = true;
-        player.color = '#FF0000';
-        
-        socket.emit('serverMessage', {
-            text: '🔥 DEV MINGAU ATIVADO!',
-            color: '#FF0000'
-        });
-        
-        console.log(`Dev account logged in: Mingau`)comandos atualizado
 function executeCommand(socket, commandText, gameState, io) {
     const parts = commandText.split(' ');
     const command = parts[0].toLowerCase();
