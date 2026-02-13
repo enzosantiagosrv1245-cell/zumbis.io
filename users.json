@@ -1,40 +1,21 @@
 {
+  "Mingau": {
+    "id": "DEVADMIN001",
+    "username": "Mingau",
+    "password": "dev1245#",
+    "color": "#FF0000",
+    "photo": null,
+    "editedName": false,
+    "isDev": true,
+    "friends": [],
+    "requests": []
+  },
   "Eddie": {
     "id": "ID108156",
     "username": "Eddie",
     "password": "123",
     "color": "#3498db",
     "photo": "https://www.google.com/url?sa=i&url=https%3A%2F%2Fdepositphotos.com%2Fbr%2Fvectors%2Fperfil-masculino.html&psig=AOvVaw2xcI-ra2qOCjr5IbEMqEvx&ust=1756228728998000&source=images&cd=vfe&opi=89978449&ved=0CBUQjRxqFwoTCODumoC8po8DFQAAAAAdAAAAABAM",
-    "editedName": false,
-    "friends": [],
-    "requests": []
-  },
-  "Zombie": {
-    "id": "ID916785",
-    "username": "Zombie",
-    "password": "123456",
-    "color": "#3498db",
-    "photo": null,
-    "editedName": false,
-    "friends": [],
-    "requests": []
-  },
-  "huh": {
-    "id": "ID935256",
-    "username": "huh",
-    "password": "huh",
-    "color": "#3498db",
-    "photo": null,
-    "editedName": false,
-    "friends": [],
-    "requests": []
-  },
-  "MINGAU": {
-    "id": "ID238217",
-    "username": "MINGAU",
-    "password": "dev",
-    "color": "#3498db",
-    "photo": null,
     "editedName": false,
     "friends": [],
     "requests": []

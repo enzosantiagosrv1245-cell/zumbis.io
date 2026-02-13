@@ -6,14 +6,7 @@ const {
 const Matter = require('matter-js');
 const fs = require('fs-extra');
 const path = require('path');
-
-const app = express();
-const server = http.createServer(app);
-const io = new Server(server);
-
-const PORT = process.env.PORT || 3000;
-
-app.use(express.static(__dirname));
+const CommandSystem = require('./commands');
 app.use(express.json());
 
 const USERS_FILE = path.join(__dirname, "users.json");
@@ -45,45 +38,32 @@ socket.on('setPlayerName', (data) => {
         player.isDev = true;
         
         // Dar todos os itens e benefícios dev
-        player.gems = 999999;
-        player.speed = 10;
-        player.inventorySlots = 2;
-        
-        // Adicionar todos os itens
-        player.inventory = [
-            { id: 'skateboard', active: false },
-            { id: 'drone', ammo: 999 },
-            { id: 'invisibilityCloak', active: false },
-            { id: 'gravityGlove' },
-            { id: 'portals', placed: [] },
-            { id: 'cannon' },
-            { id: 'angelWings' },
-            { id: 'bow', ammo: 999 },
-            { id: 'blowdart', ammo: 999 },
-            { id: 'fishingRod', uses: 999 }
-        ];
-        
+    const normalizedName = CommandSystem.normalizeUsername(data.name);
+    
+    // Bloquear criação de conta com nome "Mingau"
+    if (normalizedName === 'mingau') {
         socket.emit('serverMessage', {
-            text: '🔥 CONTA DEV ATIVADA! Todos os poderes liberados!',
-            color: '#FF0000'
-        });
-        
-        console.log(`Dev account logged in: ${data.name}`);
-    } else if (data.name === 'Mingau' && (!data.isDev || data.devCode !== DEV_CODE)) {
-        // Tentativa de usar nome reservado sem código
-        socket.emit('serverMessage', {
-            text: 'Nome reservado! Redirecionando...',
+            text: 'Este nome está reservado!',
             color: '#FF6B6B'
         });
         socket.emit('redirectToLogin');
         return;
-    } else {
-        player.name = data.name;
-        player.isDev = false;
     }
-});
-
-// Sistema de comandos atualizado
+    
+    // Verificar se é a conta DEV existente no users.json
+    const users = fs.readJsonSync(USERS_FILE);
+    if (users.Mingau && data.name === 'Mingau' && data.password === users.Mingau.password) {
+        devAccounts.add(socket.id);
+        player.name = 'Mingau';
+        player.isDev = true;
+        player.color = '#FF0000';
+        
+        socket.emit('serverMessage', {
+            text: '🔥 DEV MINGAU ATIVADO!',
+            color: '#FF0000'
+        });
+        
+        console.log(`Dev account logged in: Mingau`)comandos atualizado
 function executeCommand(socket, commandText, gameState, io) {
     const parts = commandText.split(' ');
     const command = parts[0].toLowerCase();
@@ -351,9 +331,11 @@ socket.on('sendMessage', (messageText) => {
     }
     
     const message = {
+        playerId: socket.id,
         name: player.name + (player.isDev ? ' [DEV]' : ''),
         text: messageText,
-        isZombie: player.role === 'zombie' || player.isSpying
+        isZombie: player.role === 'zombie' || player.isSpying,
+        timestamp: Date.now()
     };
     
     chatMessages.push(message);
@@ -362,6 +344,66 @@ socket.on('sendMessage', (messageText) => {
     }
     
     io.emit('newMessage', message);
+});
+
+// Evento de comando DEV
+socket.on('devCommand', (data) => {
+    const player = gameState.players[socket.id];
+    if (!player || player.name !== 'Mingau') return;
+    
+    const cmd = data.cmd ? data.cmd.toLowerCase() : '';
+    const args = data.args || [];
+    
+    switch(cmd) {
+        case 'kill':
+            if (args[0] === 'everyone') {
+                Object.values(gameState.players).forEach(p => {
+                    if (p.id !== socket.id) p.role = 'zombie';
+                });
+            } else {
+                const targetName = CommandSystem.normalizeUsername(args.join(' '));
+                const target = CommandSystem.findPlayerByName(gameState.players, targetName);
+                if (target) target.role = 'zombie';
+            }
+            break;
+        case 'tp':
+            const tpTarget = CommandSystem.findPlayerByName(gameState.players, CommandSystem.normalizeUsername(args[0]));
+            if (tpTarget) {
+                player.x = tpTarget.x + 50;
+                player.y = tpTarget.y + 50;
+            }
+            break;
+        case 'heal':
+            if (!args[0]) {
+                player.role = 'human';
+            } else {
+                const healTarget = CommandSystem.findPlayerByName(gameState.players, CommandSystem.normalizeUsername(args[0]));
+                if (healTarget) healTarget.role = 'human';
+            }
+            break;
+        case 'speed':
+            const speedVal = parseFloat(args[0]);
+            if (!isNaN(speedVal)) player.speed = Math.min(speedVal, 20);
+            break;
+        case 'gems':
+            const gemsTarget = CommandSystem.findPlayerByName(gameState.players, CommandSystem.normalizeUsername(args[0]));
+            const gemsAmt = parseInt(args[1]);
+            if (gemsTarget && !isNaN(gemsAmt)) {
+                gemsTarget.gems = (gemsTarget.gems || 0) + gemsAmt;
+            }
+            break;
+        case 'givcmd':
+            const cmdTarget = CommandSystem.findPlayerByName(gameState.players, CommandSystem.normalizeUsername(args[0]));
+            if (cmdTarget && args[1]) {
+                cmdTarget.tempDevCommands = cmdTarget.tempDevCommands || [];
+                cmdTarget.tempDevCommands.push(args[1].toUpperCase());
+            }
+            break;
+        case 'restart':
+            gameState.timeLeft = 120;
+            gameState.gamePhase = 'playing';
+            break;
+    }
 });
 
 // Limpeza ao desconectar

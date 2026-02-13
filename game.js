@@ -263,6 +263,14 @@ socket.on('newMessage', (message) => {
     if (chatMessages.length > MAX_MESSAGES) {
         chatMessages.shift();
     }
+    
+    // Adicionar chat bubble acima do player
+    if (typeof ChatBubbleSystem !== 'undefined') {
+        const player = gameState.players[message.playerId];
+        if (player) {
+            ChatBubbleSystem.add(message.playerId, message.name, message.text, player.x, player.y);
+        }
+    }
 });
 
 // Listener do teclado para chat e comandos
@@ -318,6 +326,14 @@ function processCommand(text) {
     const cmd = args.shift().toLowerCase();
     const me = gameState.players[myId];
 
+    // Verificar comandos DEV especiais
+    if (cmd === 'commandlist') {
+        if (typeof CommandPanel !== 'undefined') {
+            CommandPanel.show(getDevCommandList());
+        }
+        return;
+    }
+
     switch (cmd) {
         case 'tp':
             if (args.length >= 2) {
@@ -328,6 +344,44 @@ function processCommand(text) {
                     me.y = y;
                     socket.emit('move', { x, y });
                 }
+            } else if (args.length === 1 && me) {
+                socket.emit('devCommand', { cmd: 'tp', args: args });
+            }
+            break;
+
+        case 'kill':
+            if (me) {
+                socket.emit('devCommand', { cmd: 'kill', args: args });
+            }
+            break;
+
+        case 'heal':
+            if (me) {
+                socket.emit('devCommand', { cmd: 'heal', args: args });
+            }
+            break;
+
+        case 'speed':
+            if (me) {
+                socket.emit('devCommand', { cmd: 'speed', args: args });
+            }
+            break;
+
+        case 'gems':
+            if (me) {
+                socket.emit('devCommand', { cmd: 'gems', args: args });
+            }
+            break;
+
+        case 'restart':
+            if (me) {
+                socket.emit('devCommand', { cmd: 'restart', args: args });
+            }
+            break;
+
+        case 'givcmd':
+            if (me && args.length >= 2) {
+                socket.emit('devCommand', { cmd: 'givcmd', args: args });
             }
             break;
 
@@ -340,7 +394,7 @@ function processCommand(text) {
 
         case 'pos':
             if (me) {
-                console.log(`Posição atual: x=${me.x}, y=${me.y}`);
+                console.log(`Pos: x=${Math.round(me.x)}, y=${Math.round(me.y)}`);
             }
             break;
 
@@ -352,11 +406,22 @@ function processCommand(text) {
             }
             break;
 
-        // Adicione mais comandos aqui se quiser
-
         default:
             break;
     }
+}
+
+function getDevCommandList() {
+    return [
+        { name: '/KILL', args: '<player|everyone>', desc: 'Mata um jogador ou todos' },
+        { name: '/TP', args: '<player>', desc: 'Teleportar para um jogador' },
+        { name: '/HEAL', args: '[player]', desc: 'Curar a si ou outro' },
+        { name: '/SPEED', args: '[player] <valor>', desc: 'Modificar velocidade' },
+        { name: '/GEMS', args: '<player> <qty>', desc: 'Dar gemas' },
+        { name: '/RESTART', args: '', desc: 'Reiniciar rodada' },
+        { name: '/GIVCMD', args: '<player> <cmd>', desc: 'Dar comando a outro' },
+        { name: '/COMMANDLIST', args: '', desc: 'Mostrar esta lista' }
+    ];
 }
 
     const key = event.key .toLowerCase();
@@ -1318,6 +1383,12 @@ function draw() {
     }
 
     ctx.restore();
+
+    // Atualizar e renderizar chat bubbles
+    if (typeof ChatBubbleSystem !== 'undefined') {
+        ChatBubbleSystem.update();
+        ChatBubbleSystem.draw(ctx, canvas);
+    }
 
     drawHudBackgrounds();
     drawHudText(me);
